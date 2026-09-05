@@ -6,6 +6,8 @@ RSO is a standalone Python project. Kinestrand and other projects may use its CL
 
 Graft is an optional third-party development skill. It is not part of RSO, is not distributed here, and is not needed to build, test, install, or run RSO. References to it describe the boundary between the two tools.
 
+On September 5, 2026, Paul Griswold reported that RSO has been tested with Graft in place and that they work excellently together. This records the owner's evaluation, not an automated compatibility certification or a claim that Graft is included in RSO.
+
 ## Work from a checkout
 
 On the original Windows machine, `%USERPROFILE%\.local\RSOContextAlpha` is both the canonical checkout and the installed program. Edit and commit RSO here. Changes to runtime source in this folder affect the installed CLI immediately.

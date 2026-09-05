@@ -28,6 +28,8 @@ RSO preserves historical source records while retrieving current evidence. It ma
 
 Graft and other code maps remain separate tools. They answer structural questions such as where a function lives or what calls it. RSO handles source evidence and validation history. It excludes folders named `graft` so derived cards don't become original evidence.
 
+Paul Griswold's evaluation, September 5, 2026: RSO has been tested with Graft in place, and they work excellently together. This is the project owner's reported experience. Graft is a separate third-party skill, not part of RSO or a required dependency.
+
 ## Using it in an agent harness
 
 [Inference] A harness could call `use` at task start, call `query` with the task, provide the resulting evidence packet to its agent, and record an authorized validation after a person or named check approves a claim. This is an integration pattern, not a supplied integration with any particular harness. RSO's CLI and skill are the shipped interface; it doesn't require a particular model provider.
