@@ -1,0 +1,41 @@
+# Derived code maps and local agent coordination
+graft/
+.agent-coordination/
+.mcp.json
+.ignore
+REPAIR-COORDINATION.md
+LINKEDIN.md
+
+# Per-user evidence, credentials, local settings, and private working notes
+.rso-context/
+*.sqlite*
+*.db
+.env
+.env.*
+!.env.example
+*credentials*.json
+*secrets*.json
+*.pem
+*.key
+private/
+
+# Generated files and preserved backups
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage*
+htmlcov/
+build/
+dist/
+output/
+outputs/
+renders/
+tmp/
+temp/
+backup/
+backups/
+*.bak*
+*.rso-backup-*
+*.zip

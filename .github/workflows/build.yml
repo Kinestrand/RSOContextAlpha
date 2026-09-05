@@ -1,0 +1,41 @@
+name: Test and build RSO
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12']
+    env:
+      PYTHONPATH: src
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run regression tests
+        run: python -B -m unittest discover -s tests -v
+      - name: Build release ZIP
+        if: matrix.python == '3.11'
+        run: python -B build_release.py --output outputs/RSOContextAlpha-0.7.0.zip
+      - name: Save private build artifact
+        if: matrix.python == '3.11'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: RSOContextAlpha-0.7.0-${{ github.sha }}
+          path: outputs/RSOContextAlpha-0.7.0.zip
+          if-no-files-found: error
+          retention-days: 7
