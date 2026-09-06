@@ -26,7 +26,6 @@ That is a different job from a code map (Graft and friends) and from ordinary RA
 |------|------|
 | [INSTALL.md](INSTALL.md) | Where the program, PATH launcher, and per-user index live |
 | [FOR-AGENT-BUILDERS.md](FOR-AGENT-BUILDERS.md) | Positioning for people who already ship agents (not a protocol spec) |
-| [LINKEDIN.md](LINKEDIN.md) | Public-facing posture draft (not posted; outreach / hire-me framing) |
 | [AGENTS.md](AGENTS.md) / [SKILL.md](SKILL.md) / [protocol.md](protocol.md) | How agents call and interpret the ledger |
 | [DAY-ONE.md](DAY-ONE.md) | New-project ground rules |
 | [CROSS-PROJECT.md](CROSS-PROJECT.md) | Plates + search order across projects (no shared concept registry) |
@@ -53,4 +52,3 @@ Not a second brain. Not Graft. Not ChatGPT memory. Not an embedding database. No
 
 ## License / disclosure
 
-Private engineering tree. Do not treat docs here as a public product announcement. Outreach copy lives in `LINKEDIN.md` and stays unposted until you choose otherwise.
