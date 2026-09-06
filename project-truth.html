@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project truth interview</title>
+<style>
+  :root { --ink: #1a1a18; --muted: #5c5a54; --line: #d9d4c8; --bg: #f6f3ea; --card: #fffdf8; --accent: #2c4a3e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 18px/1.45 "Segoe UI", system-ui, sans-serif; color: var(--ink); background: var(--bg); }
+  main { max-width: 42rem; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+  h1 { font-size: 1.6rem; font-weight: 650; margin: 0 0 .4rem; }
+  .lede { color: var(--muted); margin: 0 0 1.75rem; }
+  fieldset { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 1rem 1.1rem 1.15rem; margin: 0 0 1rem; }
+  legend { font-weight: 650; padding: 0 .35rem; }
+  label { display: block; font-size: .92rem; margin: .7rem 0 .25rem; }
+  input[type=text], textarea { width: 100%; font: inherit; padding: .5rem .6rem; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  textarea { min-height: 4.5rem; resize: vertical; }
+  .hint { font-size: .82rem; color: var(--muted); margin: .2rem 0 .4rem; }
+  .row { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: .7rem; }
+  button, .file { font: inherit; font-size: .95rem; padding: .45rem .85rem; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
+  button.secondary, .file { background: #fff; color: var(--accent); }
+  .file { display: inline-block; }
+  .file input { display: none; }
+  .status { min-height: 1.3rem; font-size: .85rem; color: var(--muted); margin: .8rem 0 0; }
+  .repeat { border-top: 1px dashed var(--line); padding-top: .6rem; margin-top: .6rem; }
+  .check { display: flex; gap: .5rem; align-items: flex-start; margin-top: .8rem; font-size: .95rem; }
+  .check input { margin-top: .3rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Project truth interview</h1>
+  <p class="lede">Answer in plain language. Save as you go. When you are done, download <code>PROJECT-TRUTH.md</code> into the project folder. Do not replace an existing <code>AGENTS.md</code> unless this folder has none and you want that marker. An agent can ingest that file. Chat is not remembered unless it is in this file.</p>
+
+  <fieldset>
+    <legend>1. Name</legend>
+    <label for="name">What is this project called?</label>
+    <input id="name" type="text" placeholder="e.g. Studio, Course site, RSO Context">
+  </fieldset>
+
+  <fieldset>
+    <legend>2. Job</legend>
+    <label for="intent">In one sentence, what must this project do?</label>
+    <p class="hint">Start from the work, not the tools.</p>
+    <textarea id="intent" placeholder="e.g. keep a local evidence ledger over bounded project folders"></textarea>
+    <label for="folder">This folder is the real project. Copies and exports are not.</label>
+    <p class="hint">Leave as “this folder” unless you need to name it.</p>
+    <input id="folder" type="text" value="this folder">
+  </fieldset>
+
+  <fieldset>
+    <legend>3. Stay out of</legend>
+    <label for="nongoal">What must this project never become?</label>
+    <textarea id="nongoal" placeholder="e.g. a second brain, a chat archive, a dumping ground for every document on the PC"></textarea>
+    <label for="adjacent">Is there a neighboring tool or repo we must not mix in?</label>
+    <input id="adjacent" type="text" placeholder="e.g. Graft, a class folder, another product">
+  </fieldset>
+
+  <fieldset>
+    <legend>4. Tools</legend>
+    <label for="stack">What tools are approved to use here?</label>
+    <input id="stack" type="text" placeholder="e.g. this CLI, this editor, this render app">
+    <label class="check"><input id="secrets" type="checkbox" checked> Secrets must never be stored in this folder. Use placeholders.</label>
+    <label class="check"><input id="bounded" type="checkbox" checked> Only this project folder should be indexed. Not Documents, Downloads, or a whole cloud drive.</label>
+  </fieldset>
+
+  <fieldset>
+    <legend>5. Decisions already made</legend>
+    <p class="hint">Each line is a choice you are willing to stand behind. Add as many as you need. You can come back and edit later.</p>
+    <div id="decisions"></div>
+    <div class="row"><button type="button" class="secondary" id="addDecision">Add a decision</button></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>6. What to trust, in order</legend>
+    <label for="authoritative">Which files are the source of truth, in order?</label>
+    <p class="hint">This interview always writes AGENTS.md first. Then list the rest, comma-separated.</p>
+    <input id="authoritative" type="text" placeholder="e.g. README.md, ROADMAP.md, a spec">
+  </fieldset>
+
+  <fieldset>
+    <legend>7. Still unknown</legend>
+    <p class="hint">Questions that must not be treated as decided.</p>
+    <div id="unknowns"></div>
+    <div class="row"><button type="button" class="secondary" id="addUnknown">Add a question</button></div>
+  </fieldset>
+
+  <div class="row">
+    <button type="button" id="saveJson">Save interview</button>
+    <label class="file">Load interview<input id="loadJson" type="file" accept=".json,application/json"></label>
+    <button type="button" id="downloadMd">Download PROJECT-TRUTH.md</button>
+  </div>
+  <p class="status" id="status"></p>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const KEY = "rso-project-truth-v1";
+
+function decisionRow(choice = "", supersedes = "") {
+  const wrap = document.createElement("div");
+  wrap.className = "repeat";
+  wrap.innerHTML = `<label>The decision</label>
+    <textarea class="choice" placeholder="e.g. We use one local database, not a cloud memory">${choice.replace(/</g,"")}</textarea>
+    <label>This replaces (or “none yet”)</label>
+    <input class="supersedes" type="text" placeholder="none yet">`;
+  wrap.querySelector(".supersedes").value = supersedes;
+  return wrap;
+}
+function unknownRow(text = "") {
+  const wrap = document.createElement("div");
+  wrap.className = "repeat";
+  wrap.innerHTML = `<label>Open question</label>
+    <textarea class="unknown" placeholder="e.g. Which machine is the live copy?">${text.replace(/</g,"")}</textarea>`;
+  return wrap;
+}
+
+function collect() {
+  return {
+    name: $("name").value.trim(),
+    intent: $("intent").value.trim(),
+    folder: $("folder").value.trim() || "this folder",
+    nongoal: $("nongoal").value.trim(),
+    adjacent: $("adjacent").value.trim(),
+    stack: $("stack").value.trim(),
+    secrets: $("secrets").checked,
+    bounded: $("bounded").checked,
+    authoritative: $("authoritative").value.trim(),
+    decisions: [...$("decisions").querySelectorAll(".repeat")].map((row) => ({
+      choice: row.querySelector(".choice").value.trim(),
+      supersedes: row.querySelector(".supersedes").value.trim() || "none yet",
+    })).filter((d) => d.choice),
+    unknowns: [...$("unknowns").querySelectorAll(".unknown")].map((el) => el.value.trim()).filter(Boolean),
+  };
+}
+
+function fill(data) {
+  $("name").value = data.name || "";
+  $("intent").value = data.intent || "";
+  $("folder").value = data.folder || "this folder";
+  $("nongoal").value = data.nongoal || "";
+  $("adjacent").value = data.adjacent || "";
+  $("stack").value = data.stack || "";
+  $("secrets").checked = data.secrets !== false;
+  $("bounded").checked = data.bounded !== false;
+  $("authoritative").value = data.authoritative || "";
+  $("decisions").innerHTML = "";
+  (data.decisions && data.decisions.length ? data.decisions : [{choice:"", supersedes:"none yet"}]).forEach((d) => {
+    $("decisions").appendChild(decisionRow(d.choice, d.supersedes));
+  });
+  $("unknowns").innerHTML = "";
+  (data.unknowns && data.unknowns.length ? data.unknowns : [""]).forEach((u) => {
+    $("unknowns").appendChild(unknownRow(u));
+  });
+}
+
+function persist() {
+  localStorage.setItem(KEY, JSON.stringify(collect()));
+  $("status").textContent = "Saved on this computer.";
+}
+
+function toMarkdown(data) {
+  const name = data.name || "Untitled project";
+  const intent = data.intent || "[one-sentence job]";
+  const nongoal = data.nongoal || "[thing it will be tempted to become]";
+  const adjacent = data.adjacent || "[named adjacent tool]";
+  const stack = data.stack || "[tools]";
+  const rest = data.authoritative ? `, then ${data.authoritative}` : "";
+  const decisions = data.decisions.length
+    ? data.decisions.map((d) => `Decision: ${d.choice}. This supersedes ${d.supersedes}.`).join("\n")
+    : "Decision: [choice]. This supersedes none yet.";
+  const unknowns = data.unknowns.length
+    ? data.unknowns.map((u) => `UNKNOWN: ${u}. Do not treat guesses as approved.`).join("\n")
+    : "UNKNOWN: [question]. Do not treat guesses as approved.";
+  const secrets = data.secrets ? "Secrets must never be committed or ingested. Use placeholders.\n" : "";
+  const bounded = data.bounded
+    ? "Agents must register only this bounded folder.\nDo not register Documents, Downloads, or an entire cloud root.\n"
+    : "";
+  return `# ${name}
+
+## Intent
+This project must ${intent.replace(/^this project must /i, "")}.
+The canonical workspace is ${data.folder}. Do not treat copies, worktrees, or export dumps as this project.
+
+## Non-goals
+This project must not ${nongoal.replace(/^this project must not /i, "")}.
+Do not merge this index with ${adjacent} or ingest that tool's derived cards as sources.
+
+## Constraints
+${bounded}${secrets}
+## Decisions
+${decisions}
+The approved stack is ${stack}. Do not add a second stack without a new decision in this file.
+
+## Sources of truth
+AUTHORITATIVE: this file${rest}.
+Required before context work: ingest this folder, then resume, then query with the actual task.
+Observed statements in code or chat are not verified. A named person must record verification.
+
+## Open questions
+${unknowns}
+`;
+}
+
+function download(filename, text, type) {
+  const blob = new Blob([text], { type });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+$("addDecision").onclick = () => { $("decisions").appendChild(decisionRow()); persist(); };
+$("addUnknown").onclick = () => { $("unknowns").appendChild(unknownRow()); persist(); };
+$("saveJson").onclick = () => {
+  persist();
+  const data = collect();
+  const slug = (data.name || "project").replace(/[^\w\-]+/g, "-").replace(/^-|-$/g, "") || "project";
+  download(slug + "-truth.json", JSON.stringify(data, null, 2), "application/json");
+  $("status").textContent = "Interview file downloaded. Keep it if you want to edit later.";
+};
+$("downloadMd").onclick = () => {
+  persist();
+  download("PROJECT-TRUTH.md", toMarkdown(collect()), "text/markdown");
+  $("status").textContent = "Put PROJECT-TRUTH.md in the project folder (do not overwrite AGENTS.md). Then tell an agent to ingest that folder.";
+};
+$("loadJson").onchange = (ev) => {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      fill(JSON.parse(reader.result));
+      persist();
+      $("status").textContent = "Loaded " + file.name + ".";
+    } catch (err) {
+      $("status").textContent = "That file was not a saved interview.";
+    }
+  };
+  reader.readAsText(file);
+  ev.target.value = "";
+};
+
+document.querySelector("main").addEventListener("input", persist);
+try {
+  const saved = localStorage.getItem(KEY);
+  fill(saved ? JSON.parse(saved) : {});
+} catch (e) {
+  fill({});
+}
+</script>
+</body>
+</html>
