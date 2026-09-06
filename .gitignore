@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.rso-context/
+*.sqlite3
+*.sqlite3-*
+.DS_Store
+Thumbs.db
+*.log
