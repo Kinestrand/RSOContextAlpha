@@ -1,5 +1,8 @@
 # Install RSO Context Alpha 0.7.0
 
+For step-by-step Windows download instructions and a first-use example, start
+with [QUICKSTART.md](QUICKSTART.md).
+
 Extract the release ZIP before installing. The installer copies only files listed in `RELEASE-FILES.txt`. Each person keeps their own index. An agent asked to install and use RSO should perform installation and checks itself.
 
 ## Requirements

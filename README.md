@@ -8,6 +8,11 @@ The files remain the source of truth. RSO doesn't learn from chat, call a model,
 
 ## Start here
 
+**New to GitHub or command-line tools? Follow the [beginner quick-start](QUICKSTART.md).**
+It covers downloading the ZIP, installing Python and Git, setting up RSO, and
+trying a complete example. It also includes a request you can paste into a local
+coding agent to have it perform setup.
+
 1. Read [INSTALL.md](INSTALL.md) for Windows or macOS setup. An agent asked to install RSO should perform the installation and checks itself.
 2. Point it at one project folder, then ask a real question:
 
