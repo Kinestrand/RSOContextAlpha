@@ -36,8 +36,29 @@ Paul Griswold's evaluation, September 5, 2026: RSO has been tested with Graft in
 
 ## Release boundaries
 
-Development lives in the private [paulrus/rso-context](https://github.com/paulrus/rso-context) repository. See [DEVELOPMENT.md](DEVELOPMENT.md) for checkout, testing, and release-build commands. RSO builds independently of the projects it indexes.
+Development lives in the [paulrus/rso-context](https://github.com/paulrus/rso-context) repository. See [DEVELOPMENT.md](DEVELOPMENT.md) for checkout, testing, and release-build commands. RSO builds independently of the projects it indexes.
 
 This is an alpha. Windows checks are included in the release tests. A POSIX launcher and macOS installation instructions are supplied, but macOS execution hasn't been tested on a Mac for this release. Python 3.11 or newer, Git, and SQLite FTS5 support are required; no third-party Python packages or provider account are required by the core runtime.
 
 The ZIP contains the program, installer, documentation, a project interview, and focused regression tests. It doesn't contain a personal index, credentials, agent configuration, or internal repair notes. Each recipient starts their own ledger. [RELEASE-FILES.txt](RELEASE-FILES.txt) is the explicit package allowlist.
+
+## License
+
+Copyright 2026 Paul Griswold.
+
+The RSO source code, documentation, and other project files in this repository
+are licensed under the Apache License, Version 2.0, unless otherwise noted.
+See [LICENSE](LICENSE) for the full terms and [NOTICE](NOTICE) for attribution.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this work except in compliance with the License.
+You may obtain a copy of the License at
+https://www.apache.org/licenses/LICENSE-2.0.
+
+Unless required by applicable law or agreed to in writing, this work is
+distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+either express or implied. See the License for the specific language governing
+permissions and limitations under the License.
+
+This license applies to RSO, not to the files or evidence ledgers users index
+with it. Graft is a separate third-party tool and is not included in this grant.

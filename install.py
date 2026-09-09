@@ -13,7 +13,7 @@ import sys
 import uuid
 
 
-REQUIRED = {"install.py", "rso-context", "rso-context.ps1", "RELEASE-FILES.txt",
+REQUIRED = {"LICENSE", "NOTICE", "install.py", "rso-context", "rso-context.ps1", "RELEASE-FILES.txt",
             "src/rso_context/__main__.py"}
 EXCLUDED = {".git", ".rso-context", ".agent-coordination", "__pycache__",
             "private", "graft", "output", "outputs", "backup", "backups"}

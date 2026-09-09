@@ -18,7 +18,7 @@ class ReleaseTests(unittest.TestCase):
         files = {p.as_posix() for p in release_files(ROOT)}
         modules = {p.relative_to(ROOT).as_posix() for p in (ROOT / "src/rso_context").glob("*.py")}
         self.assertTrue(modules <= files)
-        self.assertTrue({"README.md", "MANUAL.md", "INSTALL.md", "SKILL.md",
+        self.assertTrue({"LICENSE", "NOTICE", "README.md", "MANUAL.md", "INSTALL.md", "SKILL.md",
                          "references/protocol.md", "project-truth.html"} <= files)
         self.assertFalse(files & {"AGENTS.md", "ROADMAP.md", "LINKEDIN.md",
                                   "REPAIR-COORDINATION.md", ".mcp.json"})

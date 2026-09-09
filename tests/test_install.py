@@ -22,7 +22,7 @@ class InstallTests(unittest.TestCase):
         self.base = Path(self.temp.name)
         self.source = self.base / "release source"
         self.source.mkdir()
-        names = ["install.py", "rso-context", "rso-context.ps1"]
+        names = ["LICENSE", "NOTICE", "install.py", "rso-context", "rso-context.ps1"]
         names += [p.relative_to(ROOT).as_posix() for p in (ROOT / "src/rso_context").glob("*.py")]
         for name in names:
             target = self.source / name

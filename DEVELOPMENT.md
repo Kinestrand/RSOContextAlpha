@@ -1,6 +1,6 @@
 # RSO development and builds
 
-The source repository is https://github.com/paulrus/rso-context. Keep it private pending an explicit publication decision. No open-source license is granted by this migration.
+The source repository is https://github.com/paulrus/rso-context. RSO is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). Repository visibility is managed separately from licensing.
 
 RSO is a standalone Python project. Kinestrand and other projects may use its CLI, but this repository does not import their code, their evidence ledgers, or their coordination services. The runtime uses Python's standard library and Git.
 
@@ -12,7 +12,7 @@ On September 5, 2026, Paul Griswold reported that RSO has been tested with Graft
 
 On the original Windows machine, `%USERPROFILE%\.local\RSOContextAlpha` is both the canonical checkout and the installed program. Edit and commit RSO here. Changes to runtime source in this folder affect the installed CLI immediately.
 
-On another machine, clone the private repository using an authorized GitHub account:
+On another machine, clone the repository (GitHub authorization is required while it is private):
 
 ```text
 git clone https://github.com/paulrus/rso-context.git
@@ -48,12 +48,12 @@ The current version is 0.7.0. For a new version, update `src/rso_context/__init_
 
 ## GitHub checks
 
-Pushes and pull requests to `main` run the regression suite on Windows with Python 3.11 and 3.12. The Python 3.11 job also builds a ZIP and saves it as a private workflow artifact for seven days. The workflow can be started manually. It does not create a public release or publish a package.
+Pushes and pull requests to `main` run the regression suite on Windows with Python 3.11 and 3.12. The Python 3.11 job also builds a ZIP and saves it as a workflow artifact for seven days. Artifact access follows GitHub repository permissions. The workflow can be started manually. It does not create a public release or publish a package.
 
 Native macOS execution remains unverified. Supplying a POSIX launcher does not establish macOS test coverage.
 
 ## Repository boundaries
 
-Track source, tests, project instructions, documentation, and build configuration. `.gitignore` excludes personal SQLite files, credentials, generated archives, bytecode, Graft output, old repair notes, and machine-local coordination/MCP state. Package contents remain controlled by the separate release allowlist.
+Track source, tests, project instructions, documentation, and build configuration. `.gitignore` excludes personal SQLite files, credentials, generated archives, bytecode, Graft output, old repair notes, and machine-local coordination/MCP state. Package contents remain controlled by the separate release allowlist. Both LICENSE and NOTICE are required in release archives and installations; preserve applicable third-party notices if dependencies are added.
 
 The initial Git commit imports the current standalone source snapshot. Historical repair copies remain local and are not Git history. Future builds should come from this repository and record the commit being built.

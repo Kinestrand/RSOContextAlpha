@@ -7,7 +7,8 @@ Agents are clients. The SQLite service owns persistence and project identity.
 
 ## Repository and development
 The standalone source repository is `https://github.com/paulrus/rso-context`.
-Keep the repository private unless the user explicitly authorizes public disclosure.
+RSO is licensed under Apache-2.0; preserve LICENSE and NOTICE in releases and installations.
+Keep the repository private unless the user explicitly authorizes public disclosure. Licensing alone does not authorize changing repository visibility.
 This checkout owns RSO development and builds. Kinestrand and other indexed projects are clients, not source locations or build dependencies.
 Read `DEVELOPMENT.md` for tests, release packaging, and installation from a checkout.
 Never commit or upload a user's ledger, credentials, local MCP configuration, or historical coordination state.
