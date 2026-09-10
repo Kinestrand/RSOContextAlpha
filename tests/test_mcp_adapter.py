@@ -133,9 +133,11 @@ class McpHandshakeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.python = ensure_isolated_python()
 
-    def test_isolated_runtime_reports_sdk_2(self):
+    def test_isolated_runtime_reports_pinned_sdk(self):
         status = runtime_status()
-        self.assertTrue(str(status["runtime_mcp_version"]).startswith("2."))
+        self.assertEqual(status["runtime_mcp_version"], "2.2.0")
+        self.assertTrue(status["runtime_ready"])
+        self.assertEqual(status["sdk_requirement"], "mcp==2.2.0")
 
     def test_stdio_initialize_lists_contract_tools(self):
         with tempfile.TemporaryDirectory() as tmp:

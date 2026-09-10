@@ -13,7 +13,7 @@ The POSIX launcher and macOS instructions are supplied, but native macOS executi
 
 ## Optional MCP adapter
 
-The CLI needs no pip packages. The optional stdio MCP adapter pins `mcp==2.2.0` in an isolated venv:
+The CLI needs no pip packages. The optional stdio MCP adapter pins `mcp==2.2.0` in an isolated venv. After `--install-runtime`, `mcp --status` and `doctor` must report `sdk_requirement` `mcp==2.2.0` and `runtime_mcp_version` `2.2.0`. A 2.x SDK that is not 2.2.0 is not ready.
 
 ```text
 rso-context mcp --install-runtime

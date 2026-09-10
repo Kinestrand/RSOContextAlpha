@@ -6,8 +6,9 @@ RSO is a standalone Python project. Kinestrand and other projects may use its CL
 `rso-context mcp` adapter pins the official MCP Python SDK (`mcp==2.2.0`) in an
 isolated venv (`mcp-runtime/` or `$RSO_MCP_RUNTIME`). That SDK is not imported
 by ordinary CLI commands. Create it with `rso-context mcp --install-runtime`.
-Do not install the standalone Prefect `fastmcp` package, and do not add the SDK
-to the default CLI interpreter.
+`runtime_ready` and post-install checks must report exactly `2.2.0`, not any
+other 2.x release. Do not install the standalone Prefect `fastmcp` package, and
+do not add the SDK to the default CLI interpreter.
 
 Graft is an optional third-party development skill. It is not part of RSO, is not distributed here, and is not needed to build, test, install, or run RSO. References to it describe the boundary between the two tools.
 

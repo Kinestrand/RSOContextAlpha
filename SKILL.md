@@ -58,7 +58,7 @@ Do not register a user profile, `Documents`, `Downloads`, or an entire cloud roo
 
 ## MCP adapter
 
-Optional local stdio MCP uses the same core functions as the CLI. **Tool discovery is not a promise of automatic use.** After the host lists `rso_use` / `rso_query`, still call them (or the CLI) with the current agent name and the actual task:
+Optional local stdio MCP uses the same core functions as the CLI. Pin and verify isolated `mcp==2.2.0`; `doctor` / `mcp --status` `runtime_ready` is true only for that exact version. **Tool discovery is not a promise of automatic use.** After the host lists `rso_use` / `rso_query`, still call them (or the CLI) with the current agent name and the actual task:
 
 ```text
 rso_use path=<bounded-workspace> agent=<current-agent-name>

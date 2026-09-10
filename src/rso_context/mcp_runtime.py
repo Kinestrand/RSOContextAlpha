@@ -15,6 +15,15 @@ RUNTIME_DIRNAME = "mcp-runtime"
 REQUIREMENTS_NAME = "requirements-mcp.txt"
 
 
+def pinned_sdk_version() -> str:
+    _, _, value = SDK_REQUIREMENT.partition("==")
+    return value or SDK_REQUIREMENT
+
+
+def sdk_version_matches(version: str | None) -> bool:
+    return bool(version) and version == pinned_sdk_version()
+
+
 def program_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
@@ -60,7 +69,7 @@ def current_sdk_status() -> dict[str, object]:
         server_import = True
     except ImportError:
         server_import = False
-    usable = bool(version and version.startswith("2.") and server_import)
+    usable = bool(sdk_version_matches(version) and server_import)
     return {
         "interpreter": sys.executable,
         "mcp_version": version,
@@ -102,7 +111,7 @@ def runtime_status() -> dict[str, object]:
         "runtime_dir": str(directory),
         "runtime_python": str(python) if python else None,
         "runtime_mcp_version": version,
-        "runtime_ready": bool(version and version.startswith("2.")),
+        "runtime_ready": sdk_version_matches(version),
         "current_interpreter": current,
         "requirements_file": str(requirements_path()),
         "requirements_present": requirements_path().is_file(),
@@ -140,8 +149,10 @@ def install_runtime(directory: Path | None = None) -> dict[str, object]:
         detail = (install.stderr or install.stdout or "").strip()
         raise RuntimeError(f"Failed to install {SDK_REQUIREMENT} into {root}: {detail}")
     version = _runtime_sdk_version(python)
-    if not version or not version.startswith("2."):
-        raise RuntimeError(f"Isolated runtime did not report MCP SDK 2.x; got {version!r}")
+    if not sdk_version_matches(version):
+        raise RuntimeError(
+            f"Isolated runtime did not report {SDK_REQUIREMENT}; got {version!r}"
+        )
     return {
         "schema": "rso-mcp-runtime-install/v1",
         "runtime_dir": str(root),
@@ -156,7 +167,7 @@ def serve_via_runtime(argv: list[str], *, directory: Path | None = None) -> int:
     python = runtime_python(directory)
     if python is None:
         raise RuntimeError(
-            "MCP SDK 2.x is not available. Run `rso-context mcp --install-runtime` first."
+            f"{SDK_REQUIREMENT} is not available. Run `rso-context mcp --install-runtime` first."
         )
     env = os.environ.copy()
     src = str(program_root() / "src")

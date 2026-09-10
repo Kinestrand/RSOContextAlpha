@@ -4,7 +4,7 @@ RSO Context is a local evidence ledger for agents working with project files. It
 
 For example, a project file might say, "Decision: export the preview at 24 fps." RSO can return that sentence with its file path, line range, and content hash. If the file changes, the next ingest records a new version. If someone explicitly approves a claim, their named validation can travel with the evidence.
 
-The files remain the source of truth. RSO doesn't learn from chat, call a model, use embeddings, or change model weights. It uses Python and local SQLite full-text search. Its command-line interface returns JSON; the optional browser viewer runs on localhost.
+The files remain the source of truth. RSO doesn't learn from chat, call a model, use embeddings, or change model weights. It uses Python and local SQLite full-text search. Its command-line interface returns JSON; the optional browser viewer runs on localhost. An optional local stdio MCP adapter (`rso-context mcp`) uses the same CLI functions and ledger. It pins `mcp==2.2.0` in an isolated runtime and is not required for ordinary CLI use. See [INSTALL.md](INSTALL.md#optional-mcp-adapter).
 
 ## Start here
 
@@ -43,7 +43,7 @@ Paul Griswold's evaluation, September 5, 2026: RSO has been tested with Graft in
 
 Development lives in the [paulrus/rso-context](https://github.com/paulrus/rso-context) repository. See [DEVELOPMENT.md](DEVELOPMENT.md) for checkout, testing, and release-build commands. RSO builds independently of the projects it indexes.
 
-This is an alpha. Windows checks are included in the release tests. A POSIX launcher and macOS installation instructions are supplied, but macOS execution hasn't been tested on a Mac for this release. Python 3.11 or newer, Git, and SQLite FTS5 support are required; no third-party Python packages or provider account are required by the core runtime.
+This is an alpha. Windows checks are included in the release tests. A POSIX launcher and macOS installation instructions are supplied, but macOS execution hasn't been tested on a Mac for this release. Python 3.11 or newer, Git, and SQLite FTS5 support are required. The core CLI needs no third-party Python packages or provider account. The optional MCP adapter is the only shipped pip install, and `doctor` / `mcp --status` must report exactly `mcp==2.2.0` (`runtime_mcp_version` `2.2.0`) before that adapter is ready. Live Codex and Claude Code host tests and native macOS execution remain unverified.
 
 The ZIP contains the program, installer, documentation, a project interview, and focused regression tests. It doesn't contain a personal index, credentials, agent configuration, or internal repair notes. Each recipient starts their own ledger. [RELEASE-FILES.txt](RELEASE-FILES.txt) is the explicit package allowlist.
 

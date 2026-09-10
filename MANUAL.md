@@ -148,7 +148,7 @@ rso-context mcp --setup --client claude-code --root <workspace>
 rso-context mcp --remove --client claude-code
 ```
 
-`--setup` / `--remove` touch only the `rso-context` host entry. Pass `--config <file>` for isolated files. MCP `rso_query` returns a compact packet; CLI `query` stays full v2 unless `--compact` is used.
+`--setup` / `--remove` touch only the `rso-context` host entry. Pass `--config <file>` for isolated files. MCP `rso_query` returns `rso-mcp-packet/v1`; CLI `query` stays `rso-context-packet/v2` unless `--compact` is used. `doctor` and `mcp --status` treat the isolated runtime as ready only when `runtime_mcp_version` is exactly `2.2.0`.
 
 ## 9. Troubleshooting
 

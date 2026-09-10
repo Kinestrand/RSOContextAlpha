@@ -96,7 +96,9 @@ these show where RSO was installed. Next, copy this block:
 
 The version should include `0.8.0`. The doctor result should include
 `"ready": true`. If it says false, look at the checks in that result and the
-troubleshooting table below.
+troubleshooting table below. MCP is optional. If you install it later with
+`rso-context mcp --install-runtime`, `doctor` must show `runtime_mcp_version`
+`2.2.0` before that adapter is ready. The CLI itself does not need that step.
 
 These commands use RSO's full installed path. You don't need to change your PATH
 settings to follow this guide. The `&` tells PowerShell to run the quoted path.
