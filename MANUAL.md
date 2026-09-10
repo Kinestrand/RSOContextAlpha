@@ -1,6 +1,6 @@
 # RSO Context Alpha manual
 
-This manual describes the 0.7.0 CLI. Commands return JSON unless they're help/version output or the local browser viewer. Replace `<current-agent-name>` with the actual client identity and `<workspace>` with an absolute, bounded project directory. Installation is covered in [INSTALL.md](INSTALL.md).
+This manual describes the 0.8.0 CLI. Commands return JSON unless they're help/version output or the local browser viewer. Replace `<current-agent-name>` with the actual client identity and `<workspace>` with an absolute, bounded project directory. Installation is covered in [INSTALL.md](INSTALL.md).
 
 ## 1. Give the project something to remember
 
@@ -137,7 +137,18 @@ rso-context compact-pointers
 rso-context admin --port 7432
 ```
 
-`doctor` checks Python, Git, SQLite, FTS5, and database quick-check status. `validate` checks ledger/evidence invariants. After upgrading an existing schema 4 database to schema 5, run `compact-pointers` once; only reconstructable legacy chunk bodies are cleared. It isn't a secure data erasure operation. `admin` serves a read-only viewer at `http://127.0.0.1:7432`; stop it with Ctrl+C.
+`doctor` checks Python, Git, SQLite, FTS5, and database quick-check status. It also reports optional MCP runtime status and read-only Codex/Claude Code config presence; missing MCP does not fail `ready`. `validate` checks ledger/evidence invariants. After upgrading an existing schema 4 database to schema 5, run `compact-pointers` once; only reconstructable legacy chunk bodies are cleared. It isn't a secure data erasure operation. `admin` serves a read-only viewer at `http://127.0.0.1:7432`; stop it with Ctrl+C.
+
+Optional MCP:
+
+```text
+rso-context mcp --install-runtime
+rso-context mcp --setup --client codex --root <workspace>
+rso-context mcp --setup --client claude-code --root <workspace>
+rso-context mcp --remove --client claude-code
+```
+
+`--setup` / `--remove` touch only the `rso-context` host entry. Pass `--config <file>` for isolated files. MCP `rso_query` returns a compact packet; CLI `query` stays full v2 unless `--compact` is used.
 
 ## 9. Troubleshooting
 

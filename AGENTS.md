@@ -44,7 +44,7 @@ Decision: observed means the current source contains the statement. Retrieval fr
 Decision: proposed means an agent filed a solve that is not on the plate. Do not treat proposed as observed or verified. Promotion still needs a named validator or the user.
 Decision: verified, disputed, or superseded requires a named validator or the user.
 Decision: RSO and Graft stay separate engines. Mixed questions must be source-labeled.
-The approved stack is local SQLite/FTS5 plus the `rso-context` CLI. Do not add a cloud memory provider without a new decision in this file.
+The approved stack is local SQLite/FTS5 plus the `rso-context` CLI. Optional local stdio MCP (`rso-context mcp`) uses the same core functions, project identity, and ledger. Do not add HTTP hosting, a daemon, or a cloud memory provider without a new decision in this file.
 Decision: cross-project retrieval uses `search_order` (active project, domain, shared). Do not add a concept_id registry or store concept bodies in sqlite. Shared rules live as plates. A span found in another project is observed, not inherited as verified. Override by copying the plate into the project (new source). Studio and class work do not share one concept space.
 Decision: the shareable install is a PATH command plus `%USERPROFILE%\.local\RSOContextAlpha`. Do not keep the program in AppData\Local. The index stays at `%USERPROFILE%\.rso-context`. Each person gets their own index.
 Required: an agent told to install and use RSO must perform the install itself. Do not require the user to run PowerShell or ingest by hand.

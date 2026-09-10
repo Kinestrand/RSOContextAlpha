@@ -17,6 +17,23 @@ from .scope import search_scope
 from .solvers import apply_solvers, packet_body_for_hash
 
 
+def attach_empty_result(packet: dict[str, object]) -> None:
+    """Label unknown/stale-only packets. Does not change packet_hash."""
+    hits = packet.get("evidence") or []
+    current = [item for item in hits if isinstance(item, dict) and not item.get("stale") and item.get("text")]
+    if current:
+        return
+    kind = "only_stale_spans" if hits else "no_matching_spans"
+    packet["empty_result"] = {
+        "kind": kind,
+        "message": (
+            "No current spans matched this query. "
+            "Untracked and ignored files remain outside the corpus. "
+            "This is not a proof of absence."
+        ),
+    }
+
+
 STOPWORDS = {
     "the",
     "a",
@@ -682,6 +699,7 @@ def query_context(
                         (utc_now(), cache_key),
                     )
                 apply_solvers(packet)
+                attach_empty_result(packet)
                 _record_run(
                     database,
                     project_id_value,
@@ -881,6 +899,7 @@ def query_context(
     packet["packet_hash"] = packet_hash
     # checks are attached after packet_hash so they are not hashed
     apply_solvers(packet)
+    attach_empty_result(packet)
     # Freshness dependencies are cache metadata, not duplicated in output/run packets.
     packet_json = json_text({
         "packet": packet,

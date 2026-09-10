@@ -1,2 +1,9 @@
 RSO Context Alpha
 Copyright 2026 Paul Griswold
+
+This product's optional MCP adapter uses the Model Context Protocol Python SDK
+(https://github.com/modelcontextprotocol/python-sdk), installed only into an
+isolated runtime. That SDK is Copyright (c) 2024 Anthropic, PBC and
+contributors, and is licensed under the MIT License. The license text is
+included at third_party/mcp-python-sdk-LICENSE.txt. The rso-context CLI remains
+standard-library Python and does not require that SDK.

@@ -24,6 +24,7 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+mcp-runtime/
 .pytest_cache/
 .coverage*
 htmlcov/

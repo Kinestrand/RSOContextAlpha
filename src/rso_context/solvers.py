@@ -12,7 +12,11 @@ _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def packet_body_for_hash(packet: dict[str, object]) -> dict[str, object]:
-    return {key: value for key, value in packet.items() if key not in ("packet_hash", "checks")}
+    return {
+        key: value
+        for key, value in packet.items()
+        if key not in ("packet_hash", "checks", "empty_result")
+    }
 
 
 def _check(name: str, passed: bool, detail: str) -> dict[str, str]:

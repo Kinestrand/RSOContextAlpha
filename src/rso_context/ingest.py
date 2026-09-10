@@ -88,16 +88,27 @@ def _media_type(path: Path) -> str:
     return "text/plain"
 
 
-def is_supported_file(path: Path, limits: Limits) -> bool:
-    suffix = path.suffix.lower()
-    if is_sensitive_path(path):
-        return False
-    if suffix not in TEXT_EXTENSIONS and suffix not in DOCUMENT_EXTENSIONS:
-        return False
+def file_exclusion_reason(path: Path, limits: Limits) -> str | None:
+    """Why this path is not ingested. None means it is eligible. Does not read the body."""
     try:
-        return path.is_file() and not path.is_symlink() and path.stat().st_size <= limits.max_file_bytes
+        if path.is_symlink():
+            return "symlink"
+        if not path.is_file():
+            return "unreadable"
+        if is_sensitive_path(path):
+            return "sensitive_name"
+        suffix = path.suffix.lower()
+        if suffix not in TEXT_EXTENSIONS and suffix not in DOCUMENT_EXTENSIONS:
+            return "unsupported_type"
+        if path.stat().st_size > limits.max_file_bytes:
+            return "too_large"
     except OSError:
-        return False
+        return "unreadable"
+    return None
+
+
+def is_supported_file(path: Path, limits: Limits) -> bool:
+    return file_exclusion_reason(path, limits) is None
 
 
 def _has_ignored_dir_part(path: Path, root: Path) -> bool:
@@ -146,37 +157,121 @@ def _git_ls_files(root: Path) -> list[Path] | None:
     return files
 
 
-def _walk_project_files(root: Path, limits: Limits) -> list[Path]:
+def _relative_display(path: Path, root: Path) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        try:
+            return path.resolve().relative_to(root.resolve()).as_posix()
+        except (OSError, ValueError):
+            return path.name
+
+
+class _Coverage:
+    def __init__(self, enumeration: str, gap_limit: int):
+        self.enumeration = enumeration
+        self.complete = True
+        self.truncated = False
+        self.gap_limit = max(1, int(gap_limit))
+        self.counts = {
+            "enumerated": 0,
+            "eligible": 0,
+            "ignored_dir": 0,
+            "unsupported_type": 0,
+            "sensitive_name": 0,
+            "too_large": 0,
+            "symlink": 0,
+            "unreadable": 0,
+            "sensitive_content": 0,
+            "stat_error": 0,
+        }
+        self.gaps: list[dict[str, str]] = []
+
+    def note(self, path: Path, root: Path, reason: str) -> None:
+        self.counts[reason] = self.counts.get(reason, 0) + 1
+        if len(self.gaps) < self.gap_limit:
+            self.gaps.append({"path": _relative_display(path, root), "reason": reason})
+        else:
+            self.truncated = True
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "schema": "rso-ingest-coverage/v1",
+            "enumeration": self.enumeration,
+            "complete": self.complete,
+            "truncated": self.truncated,
+            "counts": dict(self.counts),
+            "gaps": list(self.gaps),
+            "note": (
+                "A clean report means no recorded gap within the allowed enumeration, "
+                "not universal completeness. Untracked and ignored files remain outside "
+                "the corpus. Forbidden directories are not walked to fill this list."
+            ),
+        }
+
+
+def _walk_project_files(root: Path, limits: Limits, coverage: _Coverage | None = None) -> list[Path]:
     files: list[Path] = []
     for current, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(
-            name
-            for name in dirnames
-            if name.casefold() not in IGNORED_DIR_NAMES and not name.startswith(".")
-        )
+        kept: list[str] = []
+        for name in sorted(dirnames):
+            if name.casefold() in IGNORED_DIR_NAMES or name.startswith("."):
+                if coverage is not None:
+                    coverage.note(Path(current) / name, root, "ignored_dir")
+                continue
+            kept.append(name)
+        dirnames[:] = kept
         for filename in sorted(filenames):
             path = Path(current) / filename
+            if coverage is not None:
+                coverage.counts["enumerated"] += 1
             if _has_ignored_dir_part(path, root):
+                if coverage is not None:
+                    coverage.note(path, root, "ignored_dir")
                 continue
-            if is_supported_file(path, limits):
-                files.append(path)
-                if len(files) >= limits.max_files_per_project:
-                    return files
+            reason = file_exclusion_reason(path, limits)
+            if reason is not None:
+                if coverage is not None:
+                    coverage.note(path, root, reason)
+                continue
+            files.append(path)
+            if coverage is not None:
+                coverage.counts["eligible"] += 1
+            if len(files) >= limits.max_files_per_project:
+                if coverage is not None:
+                    coverage.complete = False
+                return files
     return files
 
 
-def iter_project_files(root: Path, limits: Limits) -> list[Path]:
+def enumerate_project_files(root: Path, limits: Limits) -> tuple[list[Path], _Coverage]:
+    """Eligible files plus a bounded coverage report for this enumeration only."""
     tracked = _git_ls_files(root)
     if tracked is None:
-        return _walk_project_files(root, limits)
+        coverage = _Coverage("bounded_walk", limits.coverage_gap_limit)
+        files = _walk_project_files(root, limits, coverage)
+        return files, coverage
+    coverage = _Coverage("git_cached", limits.coverage_gap_limit)
     files: list[Path] = []
     for path in sorted(tracked, key=lambda item: os.path.normcase(str(item))):
+        coverage.counts["enumerated"] += 1
         if _has_ignored_dir_part(path, root):
+            coverage.note(path, root, "ignored_dir")
             continue
-        if is_supported_file(path, limits):
-            files.append(path)
-            if len(files) >= limits.max_files_per_project:
-                break
+        reason = file_exclusion_reason(path, limits)
+        if reason is not None:
+            coverage.note(path, root, reason)
+            continue
+        files.append(path)
+        coverage.counts["eligible"] += 1
+        if len(files) >= limits.max_files_per_project:
+            coverage.complete = False
+            break
+    return files, coverage
+
+
+def iter_project_files(root: Path, limits: Limits) -> list[Path]:
+    files, _coverage = enumerate_project_files(root, limits)
     return files
 
 
@@ -475,7 +570,7 @@ def ingest_project(
     project = registration["project"]
     project_id = str(project["id"])
     root = Path(str(registration["identity"]["resolved_path"]))
-    files = iter_project_files(root, limits)
+    files, coverage = enumerate_project_files(root, limits)
     now = utc_now()
     seen_paths: set[str] = set()
     counters = {
@@ -506,6 +601,7 @@ def ingest_project(
                 relative_path = path_obj.relative_to(root).as_posix()
             except (OSError, ValueError):
                 counters["files_skipped"] += 1
+                coverage.note(path_obj, root, "stat_error")
                 continue
 
             source = connection.execute(
@@ -527,10 +623,12 @@ def ingest_project(
                 text = extract_text(path_obj)
                 if contains_sensitive_content(text):
                     counters["files_skipped"] += 1
+                    coverage.note(path_obj, root, "sensitive_content")
                     continue
                 content_hash = sha256_file(path_obj)
             except (OSError, ValueError, KeyError, zipfile.BadZipFile, ElementTree.ParseError):
                 counters["files_skipped"] += 1
+                coverage.note(path_obj, root, "unreadable")
                 continue
 
             seen_paths.add(os.path.normcase(resolved_path))
@@ -726,5 +824,6 @@ def ingest_project(
         "root": str(root),
         "changed": changed,
         "counters": counters,
+        "coverage": coverage.as_dict(),
         "limits": json.loads(json.dumps(limits.__dict__)),
     }

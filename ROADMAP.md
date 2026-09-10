@@ -2,7 +2,7 @@
 
 ## Next build: 0.8.0
 
-The September 9, 2026 planning pass is in [BUILD-0.8.0-PLAN.md](BUILD-0.8.0-PLAN.md): local MCP access, bounded evidence packets with expansion, client setup, and release verification. Status: planned, not shipped. Estimated effort is 30-42 focused hours over September 10-17, with September 18 contingency, conditional on the stated staffing and start date. This is a work schedule, not a background automation.
+The September 9, 2026 planning pass is in [BUILD-0.8.0-PLAN.md](BUILD-0.8.0-PLAN.md): local MCP access, bounded evidence packets with expansion, client setup, and release verification. Status: Days 1-7 landed on 2026-09-10; private artifact built; not a public ship. Live Codex/Claude Code host tests and native macOS remain unverified. Estimated effort is 30-42 focused hours over September 10-17, with September 18 contingency, conditional on the stated staffing and start date. This is a work schedule, not a background automation.
 
 The sections below preserve the earlier 0.4-0.7 roadmap and historical estimates.
 

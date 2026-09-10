@@ -17,7 +17,7 @@ bring-up. Do not ask the user to run PowerShell, PATH edits, or ingest commands.
 
 ## Resolve the CLI
 
-Current program version is **0.7.0**. Check `rso-context --version`. Install the matching release using `INSTALL.md` if absent or older. Python 3.11+, Git, and SQLite FTS5 are required. The installer is `python install.py` on Windows or `python3 install.py` on macOS. It copies an explicit manifest and prints the command path; it does not change PATH or register client skills. macOS runtime execution is untested for this release.
+Current program version is **0.8.0**. Check `rso-context --version`. Install the matching release using `INSTALL.md` if absent or older. Python 3.11+, Git, and SQLite FTS5 are required. The installer is `python install.py` on Windows or `python3 install.py` on macOS. It copies an explicit manifest and prints the command path; it does not change PATH or register client skills. macOS runtime execution is untested for this release.
 
 Resolve the CLI on PATH first. Default fallback locations:
 
@@ -55,6 +55,26 @@ rso-context query "<actual user task>" --agent <current-agent-name> --path <boun
 4. Preserve conflicting evidence. Report `unknown`, `budget_exhausted`, or `disagreement`. Do not silently merge them. `disagreement` means ask the user; do not pick a winner.
 
 Do not register a user profile, `Documents`, `Downloads`, or an entire cloud root. Automatic discovery roots are only the current working directory and `$RSO_CONTEXT_ROOTS`. `rso-context watch --path <workspace> --once` polls one already-registered folder; roots stay bounded.
+
+## MCP adapter
+
+Optional local stdio MCP uses the same core functions as the CLI. **Tool discovery is not a promise of automatic use.** After the host lists `rso_use` / `rso_query`, still call them (or the CLI) with the current agent name and the actual task:
+
+```text
+rso_use path=<bounded-workspace> agent=<current-agent-name>
+rso_query query="<actual user task>" path=<bounded-workspace> agent=<current-agent-name>
+```
+
+MCP `rso_query` returns `rso-mcp-packet/v1` (compact). CLI `query` stays `rso-context-packet/v2` unless `--compact` is passed. Recover omitted spans with `rso_expand`, not by guessing.
+
+```text
+rso-context mcp --install-runtime
+rso-context mcp --setup --client codex --root <bounded-workspace>
+rso-context mcp --setup --client claude-code --root <bounded-workspace>
+rso-context mcp --remove --client codex
+```
+
+`--setup` writes only the `rso-context` entry. `--remove` deletes only that entry. Tests and isolated checks must pass `--config <file>` so live host files are not edited. Other hosts get the stdio command from `doctor` JSON (`mcp_clients.stdio`); that is documentation, not a compatibility claim.
 
 ## Pointers, compact, and admin
 

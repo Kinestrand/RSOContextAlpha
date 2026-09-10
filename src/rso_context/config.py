@@ -177,3 +177,5 @@ class Limits:
     query_limit: int = 8
     query_token_budget: int = 4_000
     run_budget: int = 8
+    compact_byte_budget: int = 12_000
+    coverage_gap_limit: int = 20

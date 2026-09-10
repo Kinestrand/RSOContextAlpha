@@ -1,4 +1,4 @@
-# RSO Context Alpha 0.7.0
+# RSO Context Alpha 0.8.0
 
 RSO Context is a local evidence ledger for agents working with project files. It gives different agents a shared way to retrieve current requirements, decisions, source references, and recorded approvals from the same bounded project folder.
 

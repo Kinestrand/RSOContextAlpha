@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sqlite3
 import sys
@@ -25,6 +26,7 @@ from .identity import project_explanation, register_project, resolve_existing_pr
 from .admin import serve_admin
 from .ingest import ingest_project
 from .pointers import compact_pointers
+from .compact import compact_packet
 from .query import query_context
 from .resume import resume_context
 from .run_budget import get_or_start, set_budget
@@ -200,6 +202,8 @@ def command_query(args: argparse.Namespace) -> int:
         use_cache=not args.no_cache,
         run_budget=args.run_budget,
     )
+    if getattr(args, "compact", False):
+        packet = compact_packet(packet, byte_budget=getattr(args, "byte_budget", Limits.compact_byte_budget))
     _print(packet)
     return 0
 
@@ -382,6 +386,9 @@ def command_explain(args: argparse.Namespace) -> int:
 
 
 def command_doctor(args: argparse.Namespace) -> int:
+    from .mcp_runtime import runtime_status
+    from .mcp_setup import inspect_clients
+
     database = _database(args)
     checks: dict[str, object] = {
         "python": sys.version.split()[0],
@@ -398,6 +405,8 @@ def command_doctor(args: argparse.Namespace) -> int:
         except sqlite3.OperationalError as error:
             checks["fts5"] = False
             checks["fts5_error"] = str(error)
+    checks["mcp"] = runtime_status()
+    checks["mcp_clients"] = inspect_clients()
     checks["ready"] = checks["quick_check"] == "ok" and checks["fts5"] is True and checks["git"] is not None
     _print(checks)
     return 0 if checks["ready"] else 1
@@ -413,6 +422,48 @@ def command_compact_pointers(args: argparse.Namespace) -> int:
 def command_admin(args: argparse.Namespace) -> int:
     database = _database(args)
     serve_admin(database, port=args.port)
+    return 0
+
+
+def _mcp_argv(args: argparse.Namespace) -> list[str]:
+    argv = ["--db", str(args.db), "mcp"]
+    for root in args.roots or []:
+        argv.extend(["--root", str(root)])
+    return argv
+
+
+def command_mcp(args: argparse.Namespace) -> int:
+    from .mcp_runtime import current_sdk_status, install_runtime, runtime_status, serve_via_runtime
+
+    if args.install_runtime:
+        _print(install_runtime())
+        return 0
+    if args.status:
+        _print(runtime_status())
+        return 0
+    if args.setup or args.remove:
+        from .mcp_setup import remove_client, setup_client
+
+        if not args.client:
+            raise ValueError("mcp --setup/--remove requires --client codex or claude-code")
+        if args.remove:
+            _print(remove_client(args.client, config=args.config))
+            return 0
+        roots = [str(path) for path in (args.roots or [])]
+        if not roots:
+            raise ValueError("mcp --setup requires --root")
+        _print(setup_client(args.client, roots[0], config=args.config))
+        return 0
+    roots = [str(path) for path in (args.roots or [])]
+    from .mcp_contract import bind_roots
+
+    bind_roots(roots)
+    status = current_sdk_status()
+    if not status["usable"] and os.environ.get("RSO_MCP_IN_RUNTIME") != "1":
+        return serve_via_runtime(_mcp_argv(args))
+    from .mcp_server import serve_stdio
+
+    serve_stdio(db_path=str(args.db), roots=roots)
     return 0
 
 
@@ -489,6 +540,17 @@ def build_parser() -> argparse.ArgumentParser:
     query_parser.add_argument("--token-budget", type=int, default=Limits.query_token_budget)
     query_parser.add_argument("--no-cache", action="store_true")
     query_parser.add_argument("--run-budget", type=int, dest="run_budget")
+    query_parser.add_argument(
+        "--compact",
+        action="store_true",
+        help="Return rso-mcp-packet/v1 instead of the default rso-context-packet/v2",
+    )
+    query_parser.add_argument(
+        "--byte-budget",
+        type=int,
+        default=Limits.compact_byte_budget,
+        help="Max ASCII JSON bytes for --compact (MCP default too)",
+    )
     query_parser.set_defaults(function=command_query)
 
     run_budget_parser = subparsers.add_parser(
@@ -589,6 +651,52 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor_parser = subparsers.add_parser("doctor", help="Check local runtime support")
     doctor_parser.set_defaults(function=command_doctor)
+
+    mcp_parser = subparsers.add_parser(
+        "mcp",
+        help="Serve a local stdio MCP adapter bound to --root folders",
+    )
+    mcp_parser.add_argument(
+        "--db",
+        default=argparse.SUPPRESS,
+        help="SQLite database path (also accepted after mcp for host configs)",
+    )
+    mcp_parser.add_argument(
+        "--root",
+        action="append",
+        dest="roots",
+        help="Allowed project folder (repeatable). Required to serve. Not a user profile.",
+    )
+    mcp_parser.add_argument(
+        "--install-runtime",
+        action="store_true",
+        help="Create or refresh the isolated MCP SDK venv and exit",
+    )
+    mcp_parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Print isolated runtime and SDK status as JSON and exit",
+    )
+    mcp_parser.add_argument(
+        "--setup",
+        action="store_true",
+        help="Write an RSO-owned MCP entry for --client (Codex or Claude Code)",
+    )
+    mcp_parser.add_argument(
+        "--remove",
+        action="store_true",
+        help="Remove only the RSO-owned rso-context MCP entry for --client",
+    )
+    mcp_parser.add_argument(
+        "--client",
+        choices=("codex", "claude-code"),
+        help="Host to configure: Codex config.toml or Claude Code .claude.json",
+    )
+    mcp_parser.add_argument(
+        "--config",
+        help="Client config path. Tests and isolated checks must pass this; omit to use the host default.",
+    )
+    mcp_parser.set_defaults(function=command_mcp)
     return parser
 
 

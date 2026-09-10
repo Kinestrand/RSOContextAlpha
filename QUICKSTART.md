@@ -94,7 +94,7 @@ these show where RSO was installed. Next, copy this block:
 & "$env:USERPROFILE\.local\bin\rso-context.cmd" doctor
 ```
 
-The version should include `0.7.0`. The doctor result should include
+The version should include `0.8.0`. The doctor result should include
 `"ready": true`. If it says false, look at the checks in that result and the
 troubleshooting table below.
 

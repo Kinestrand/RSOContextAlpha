@@ -51,7 +51,7 @@ class InstallTests(unittest.TestCase):
 
         completed = run_command(["--version"])
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn("0.7.", completed.stdout)
+        self.assertIn("0.8.", completed.stdout)
         project = self.base / "bounded project"
         project.mkdir()
         (project / "AGENTS.md").write_text("Decision: widgets must stay blue.\n", encoding="utf-8")
@@ -80,7 +80,7 @@ class InstallTests(unittest.TestCase):
             capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn("0.7.", completed.stdout)
+        self.assertIn("0.8.", completed.stdout)
         pointer = Path(result["command"]).read_text(encoding="utf-8")
         self.assertNotIn("powershell", pointer.casefold())
 

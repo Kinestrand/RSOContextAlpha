@@ -2,7 +2,12 @@
 
 The source repository is https://github.com/paulrus/rso-context. RSO is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). Repository visibility is managed separately from licensing.
 
-RSO is a standalone Python project. Kinestrand and other projects may use its CLI, but this repository does not import their code, their evidence ledgers, or their coordination services. The runtime uses Python's standard library and Git.
+RSO is a standalone Python project. Kinestrand and other projects may use its CLI, but this repository does not import their code, their evidence ledgers, or their coordination services. The CLI runtime uses Python's standard library and Git. The optional
+`rso-context mcp` adapter pins the official MCP Python SDK (`mcp==2.2.0`) in an
+isolated venv (`mcp-runtime/` or `$RSO_MCP_RUNTIME`). That SDK is not imported
+by ordinary CLI commands. Create it with `rso-context mcp --install-runtime`.
+Do not install the standalone Prefect `fastmcp` package, and do not add the SDK
+to the default CLI interpreter.
 
 Graft is an optional third-party development skill. It is not part of RSO, is not distributed here, and is not needed to build, test, install, or run RSO. References to it describe the boundary between the two tools.
 
@@ -39,12 +44,12 @@ Tests use temporary folders and isolated databases. Manual experiments must also
 Run from the checkout:
 
 ```text
-python -B build_release.py --output outputs/RSOContextAlpha-0.7.0.zip
+python -B build_release.py --output outputs/RSOContextAlpha-0.8.0.zip
 ```
 
 The builder uses only `RELEASE-FILES.txt`, verifies archive integrity, and prints a SHA-256 hash. It refuses to replace an existing ZIP. Choose a new output path when preserving an earlier build. Install an extracted package with `python -B install.py`; see [INSTALL.md](INSTALL.md) for the platform paths and isolated installation checks.
 
-The current version is 0.7.0. For a new version, update `src/rso_context/__init__.py`, the version guard and archive prefix in `build_release.py`, related tests, and versioned documentation together before building.
+The current version is 0.8.0. For a new version, update `src/rso_context/__init__.py`, the version guard and archive prefix in `build_release.py`, related tests, and versioned documentation together before building.
 
 ## GitHub checks
 

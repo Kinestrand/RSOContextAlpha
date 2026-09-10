@@ -1,0 +1,3 @@
+# Isolated MCP adapter runtime only. The rso-context CLI remains stdlib.
+# Official SDK v2 (PyPI name: mcp). Do not install the standalone Prefect fastmcp package.
+mcp==2.2.0
