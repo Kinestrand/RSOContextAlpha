@@ -16,6 +16,7 @@ from .mcp_contract import (
     bind_roots,
     require_agent,
     resolve_workspace_path,
+    restrict_packet_to_roots,
 )
 from .compact import compact_packet, expand_reference
 from .config import Limits
@@ -62,6 +63,25 @@ def _invoke(error_type, fn):
         _raise_tool(error_type, error)
 
 
+def project_ids_visible_to_roots(database: Database, roots: list[Path]) -> set[str]:
+    """Projects with at least one alias path under a launch root."""
+    with database.connect() as connection:
+        rows = connection.execute(
+            "SELECT project_id, resolved_path FROM project_aliases "
+            "WHERE resolved_path IS NOT NULL"
+        ).fetchall()
+    visible: set[str] = set()
+    for row in rows:
+        if alias_is_visible(row["resolved_path"], roots):
+            visible.add(str(row["project_id"]))
+    return visible
+
+
+def bound_packet(database: Database, packet: dict, roots: list[Path]) -> dict:
+    """MCP responses may only cite sources under launch roots."""
+    return restrict_packet_to_roots(packet, roots, project_ids_visible_to_roots(database, roots))
+
+
 def explain_packet(database: Database, packet_hash: str, roots: list[Path]) -> dict:
     """Return a saved run packet only when its project alias sits under a launch root."""
     digest = str(packet_hash or "").strip()
@@ -84,7 +104,7 @@ def explain_packet(database: Database, packet_hash: str, roots: list[Path]) -> d
         raise ValueError("packet is outside the server's allowed roots")
     result = dict(row)
     result["config"] = json.loads(result.pop("config_json"))
-    result["packet"] = json.loads(result.pop("packet_json"))
+    result["packet"] = bound_packet(database, json.loads(result.pop("packet_json")), roots)
     return result
 
 
@@ -137,13 +157,17 @@ def build_server(*, db_path: str, roots: list[str]):
             attributed = require_agent(agent)
             if not str(query).strip():
                 raise ValueError("query is required")
-            packet = query_context(
+            packet = bound_packet(
                 database,
-                query,
-                path=resolved,
-                agent=attributed,
-                limit=limit,
-                token_budget=token_budget,
+                query_context(
+                    database,
+                    query,
+                    path=resolved,
+                    agent=attributed,
+                    limit=limit,
+                    token_budget=token_budget,
+                ),
+                allowed,
             )
             if compact:
                 return compact_packet(packet, byte_budget=byte_budget)

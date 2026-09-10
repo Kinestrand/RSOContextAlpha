@@ -212,6 +212,52 @@ def _minimal_provenance(compact: dict[str, object]) -> None:
     compact["message"] = "Required conflict/provenance information cannot fit."
 
 
+def _force_under_budget(compact: dict[str, object], budget: int) -> None:
+    """Last resort: drop metadata until the packet itself fits."""
+    compact["status"] = "insufficient_budget"
+    drop_keys = (
+        "empty_result",
+        "corpus_versions",
+        "search_order",
+        "validations",
+        "checks",
+        "run",
+        "query",
+        "requirements",
+        "claims",
+        "omitted",
+        "evidence",
+        "source_packet_hash",
+        "source_schema",
+        "clarification_needed",
+        "token_estimate",
+        "message",
+        "project",
+        "omitted_count",
+    )
+    for key in drop_keys:
+        if serialized_bytes(compact) <= budget:
+            return
+        if key == "project" and isinstance(compact.get("project"), dict):
+            compact["project"] = {"id": compact["project"].get("id")}
+            _stamp_size(compact)
+            if serialized_bytes(compact) <= budget:
+                return
+        compact.pop(key, None)
+        _stamp_size(compact)
+    if serialized_bytes(compact) > budget:
+        compact.clear()
+        compact.update(
+            {
+                "schema": COMPACT_SCHEMA,
+                "status": "insufficient_budget",
+                "byte_budget": budget,
+                "byte_count": 0,
+            }
+        )
+        _stamp_size(compact)
+
+
 def _finalize(compact: dict[str, object], budget: int, *, protect_conflict: bool) -> dict[str, object]:
     _stamp_size(compact)
     while serialized_bytes(compact) > budget:
@@ -227,6 +273,8 @@ def _finalize(compact: dict[str, object], budget: int, *, protect_conflict: bool
         compact["search_order"] = []
         compact["omitted"] = compact.get("omitted") or []
         _stamp_size(compact)
+    if serialized_bytes(compact) > budget:
+        _force_under_budget(compact, budget)
     return compact
 
 

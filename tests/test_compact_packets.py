@@ -86,8 +86,11 @@ class CompactPacketTests(unittest.TestCase):
             self.assertEqual(compact["status"], "insufficient_budget")
         tiny = compact_packet(packet, byte_budget=400)
         self.assertEqual(tiny["status"], "insufficient_budget")
-        self.assertFalse(tiny["evidence"])
-        self.assertGreaterEqual(tiny["omitted_count"], 1)
+        self.assertFalse(tiny.get("evidence"))
+        self.assertLessEqual(tiny["byte_count"], tiny["byte_budget"])
+        squeezed = compact_packet(packet, byte_budget=256)
+        self.assertLessEqual(squeezed["byte_count"], squeezed["byte_budget"])
+        self.assertEqual(squeezed["byte_count"], serialized_bytes(squeezed))
 
     def test_byte_budget_is_respected_and_omits_with_expand_refs(self):
         body = "Decision: widgets must stay blue.\n" + ("widgets extra line\n" * 80)

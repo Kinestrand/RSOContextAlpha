@@ -175,6 +175,45 @@ def alias_is_visible(resolved_path: str | Path | None, roots: list[Path]) -> boo
     return any(path_is_within_root(root, resolved_path) for root in roots)
 
 
+def restrict_packet_to_roots(
+    packet: dict,
+    roots: list[Path],
+    visible_project_ids: set[str],
+) -> dict:
+    """Drop evidence, claims, and search_order entries outside launch roots."""
+    restricted = dict(packet)
+
+    def keep_source(item: dict) -> bool:
+        resolved = item.get("resolved_path")
+        if resolved is not None and str(resolved).strip():
+            return alias_is_visible(resolved, roots)
+        project_id = str(item.get("project_id") or item.get("id") or "")
+        return bool(project_id) and project_id in visible_project_ids
+
+    restricted["evidence"] = [item for item in packet.get("evidence") or [] if keep_source(item)]
+    restricted["claims"] = [
+        item
+        for item in packet.get("claims") or []
+        if str(item.get("project_id") or "") in visible_project_ids
+    ]
+    restricted["graph_nodes"] = [
+        item
+        for item in packet.get("graph_nodes") or []
+        if str(item.get("project_id") or "") in visible_project_ids
+    ]
+    restricted["search_order"] = [
+        item
+        for item in packet.get("search_order") or []
+        if str(item.get("id") or "") in visible_project_ids
+    ]
+    restricted["validations"] = [
+        item
+        for item in packet.get("validations") or []
+        if not item.get("project_id") or str(item.get("project_id")) in visible_project_ids
+    ]
+    return restricted
+
+
 def require_agent(agent: str) -> str:
     value = str(agent or "").strip()
     if not value:

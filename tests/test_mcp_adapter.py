@@ -19,7 +19,7 @@ from rso_context.mcp_contract import (
     tool_names,
 )
 from rso_context.mcp_runtime import current_sdk_status, install_runtime, runtime_status
-from rso_context.mcp_server import explain_packet
+from rso_context.mcp_server import bound_packet, explain_packet
 from rso_context.query import query_context
 
 
@@ -126,6 +126,33 @@ class McpExplainScopeTests(unittest.TestCase):
                 explain_packet(database, digest, [visible.resolve()])
             explained = explain_packet(database, digest, [hidden.resolve()])
             self.assertEqual(explained["packet_hash"], digest)
+
+    def test_query_and_explain_omit_sources_outside_launch_roots(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            visible = base / "visible"
+            shared = base / "shared-rules"
+            visible.mkdir()
+            shared.mkdir()
+            (visible / "AGENTS.md").write_text("Decision: visible widgets must stay blue.\n", encoding="utf-8")
+            (shared / "AGENTS.md").write_text("Decision: shared widgets must stay red.\n", encoding="utf-8")
+            database = Database(base / "context.sqlite3")
+            ingest_project(database, shared, agent="scope-test", scope="shared")
+            ingest_project(database, visible, agent="scope-test")
+            packet = query_context(database, "widgets", path=visible, agent="scope-test")
+            paths = {item.get("relative_path") for item in packet["evidence"]}
+            self.assertTrue(paths)
+            explained = explain_packet(database, str(packet["packet_hash"]), [visible.resolve()])
+            visible_root = visible.resolve()
+            for item in explained["packet"]["evidence"]:
+                resolved = Path(str(item.get("resolved_path")))
+                self.assertTrue(resolved == visible_root or resolved.is_relative_to(visible_root))
+            bounded = bound_packet(database, packet, [visible_root])
+            for item in bounded["evidence"]:
+                self.assertIn("blue", item.get("text") or "")
+                self.assertNotIn("red", item.get("text") or "")
+            for item in bounded.get("search_order") or []:
+                self.assertNotEqual(item.get("scope"), "shared")
 
 
 class McpHandshakeTests(unittest.TestCase):

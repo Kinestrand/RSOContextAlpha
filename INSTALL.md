@@ -28,7 +28,7 @@ rso-context mcp --setup --client claude-code --root <bounded-project-folder>
 rso-context mcp --remove --client codex
 ```
 
-Isolated checks must pass `--config <file>`. Do not point tests at a live user config. Other clients can launch the stdio command printed by `doctor` under `mcp_clients.stdio`; that is not a tested compatibility claim. Tool discovery is not automatic use: still call `rso_use` then `rso_query` with the actual task.
+Isolated checks must pass `--config <file>`. Do not point tests at a live user config. Setup and removal rewrite only the `rso-context` tables; other `[mcp_servers.*]` headers, including those with trailing comments, stay in place. MCP query and explain omit sources outside the launch `--root` folders. Other clients can launch the stdio command printed by `doctor` under `mcp_clients.stdio`; that is not a tested compatibility claim. Tool discovery is not automatic use: still call `rso_use` then `rso_query` with the actual task.
 
 ## Windows
 

@@ -49,6 +49,21 @@ class McpSetupTests(unittest.TestCase):
         self.assertIn("[mcp_servers.graft]", after)
         self.assertIn("model = \"test\"", after)
 
+    def test_remove_preserves_commented_table_headers(self):
+        config = Path(self.temp.name) / "codex.toml"
+        setup_client("codex", self.root, config=config)
+        text = config.read_text(encoding="utf-8")
+        config.write_text(
+            "[mcp_servers.other] # comment\n"
+            'command = "other-server"\n\n' + text,
+            encoding="utf-8",
+        )
+        remove_client("codex", config=config)
+        after = config.read_text(encoding="utf-8")
+        self.assertIn("[mcp_servers.other] # comment", after)
+        self.assertIn("other-server", after)
+        self.assertNotIn("rso-context", after)
+
     def test_claude_setup_preserves_unrelated_json_and_removes_only_rso(self):
         config = Path(self.temp.name) / "claude.json"
         config.write_text(

@@ -65,15 +65,27 @@ def _toml_block(launch: dict[str, object]) -> str:
     )
 
 
+def _toml_table_name(line: str) -> str | None:
+    """Return a table name, including headers with a trailing comment."""
+    stripped = line.strip()
+    if not stripped.startswith("["):
+        return None
+    close = stripped.find("]")
+    if close < 1:
+        return None
+    rest = stripped[close + 1 :].strip()
+    if rest and not rest.startswith("#"):
+        return None
+    return stripped[1:close].strip()
+
+
 def _strip_toml_tables(text: str, header: str) -> str:
-    prefixes = (header, header + ".")
     lines = text.splitlines(keepends=True)
     kept: list[str] = []
     skipping = False
     for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            name = stripped[1:-1].strip()
+        name = _toml_table_name(line)
+        if name is not None:
             skipping = name == header or name.startswith(header + ".")
         if not skipping:
             kept.append(line)
@@ -162,7 +174,13 @@ def _codex_has_entry(path: Path) -> bool:
     if not path.is_file():
         return False
     text = path.read_text(encoding="utf-8")
-    return bool(re.search(rf"^\[mcp_servers\.{re.escape(SERVER_NAME)}\]\s*$", text, re.MULTILINE))
+    return bool(
+        re.search(
+            rf"^\[mcp_servers\.{re.escape(SERVER_NAME)}\](?:\s*#.*)?\s*$",
+            text,
+            re.MULTILINE,
+        )
+    )
 
 
 def _claude_has_entry(path: Path) -> bool:
