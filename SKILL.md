@@ -65,7 +65,7 @@ rso_use path=<bounded-workspace> agent=<current-agent-name>
 rso_query query="<actual user task>" path=<bounded-workspace> agent=<current-agent-name>
 ```
 
-MCP `rso_query` returns `rso-mcp-packet/v1` (compact). Compact packets stay within the requested byte budget, including fallback `insufficient_budget` packets. CLI `query` stays `rso-context-packet/v2` unless `--compact` is passed. Recover omitted spans with `rso_expand`, not by guessing. MCP query and explain omit sources whose files sit outside launch `--root` folders.
+MCP `rso_query` returns `rso-mcp-packet/v1` (compact) as text-only tool content so the JSON-RPC tools/call result stays within `byte_budget` (including a 4000-byte request). Compact packets stay within the requested byte budget, including fallback `insufficient_budget` packets. CLI `query` stays `rso-context-packet/v2` unless `--compact` is passed. Recover omitted spans with `rso_expand`, not by guessing. MCP query and explain omit sources whose files sit outside launch `--root` folders.
 
 ```text
 rso-context mcp --install-runtime

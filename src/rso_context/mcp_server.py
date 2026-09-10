@@ -63,6 +63,41 @@ def _invoke(error_type, fn):
         _raise_tool(error_type, error)
 
 
+def _payload_json(payload: dict) -> str:
+    return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+
+
+def call_tool_result(payload: dict):
+    """Text-only tool result. Avoids duplicating the packet in structuredContent."""
+    from mcp_types import CallToolResult, TextContent
+
+    return CallToolResult(content=[TextContent(type="text", text=_payload_json(payload))])
+
+
+def tool_result_wire_bytes(payload: dict) -> int:
+    """JSON-RPC tools/call result size for a text-only CallToolResult."""
+    result = call_tool_result(payload)
+    dumped = json.loads(result.model_dump_json(by_alias=True, exclude_none=True))
+    message = {"jsonrpc": "2.0", "id": 1, "result": dumped}
+    return len(json.dumps(message, ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
+
+
+def fit_payload_to_wire_budget(source: dict, *, byte_budget: int, compact: bool = True) -> dict:
+    """Shrink a compact packet until the MCP wire result is within byte_budget."""
+    budget = max(256, int(byte_budget))
+    payload = compact_packet(source, byte_budget=budget) if compact else dict(source)
+    if not compact and tool_result_wire_bytes(payload) <= budget:
+        return payload
+    inner = budget
+    for _ in range(16):
+        payload = compact_packet(source, byte_budget=inner)
+        size = tool_result_wire_bytes(payload)
+        if size <= budget:
+            return payload
+        inner = max(256, inner - (size - budget) - 32)
+    return compact_packet(source, byte_budget=256)
+
+
 def project_ids_visible_to_roots(database: Database, roots: list[Path]) -> set[str]:
     """Projects with at least one alias path under a launch root."""
     with database.connect() as connection:
@@ -140,7 +175,7 @@ def build_server(*, db_path: str, roots: list[str]):
 
         return _invoke(error_type, run)
 
-    @mcp.tool()
+    @mcp.tool(structured_output=False)
     def rso_query(
         query: str,
         path: str,
@@ -149,7 +184,7 @@ def build_server(*, db_path: str, roots: list[str]):
         token_budget: int = 4000,
         compact: bool = True,
         byte_budget: int = Limits.compact_byte_budget,
-    ) -> dict:
+    ):
         """Return a compact evidence packet by default. This writes a run record and consumes budget."""
 
         def run():
@@ -169,9 +204,8 @@ def build_server(*, db_path: str, roots: list[str]):
                 ),
                 allowed,
             )
-            if compact:
-                return compact_packet(packet, byte_budget=byte_budget)
-            return packet
+            fitted = fit_payload_to_wire_budget(packet, byte_budget=byte_budget, compact=compact)
+            return call_tool_result(fitted)
 
         return _invoke(error_type, run)
 
@@ -191,14 +225,22 @@ def build_server(*, db_path: str, roots: list[str]):
         """Return a saved query packet from the launch-bound ledger if its project is in-root."""
         return _invoke(error_type, lambda: explain_packet(database, packet_hash, allowed))
 
-    @mcp.tool()
-    def rso_expand(ref: str, max_bytes: int = Limits.compact_byte_budget) -> dict:
+    @mcp.tool(structured_output=False)
+    def rso_expand(ref: str, max_bytes: int = Limits.compact_byte_budget):
         """Retrieve omitted evidence by expansion reference. Bounded; stale if the file changed."""
 
         def run():
             if not str(ref).strip():
                 raise ValueError("ref is required")
-            return expand_reference(database, ref, roots=allowed, max_bytes=max_bytes)
+            budget = max(256, int(max_bytes))
+            inner = budget
+            payload = expand_reference(database, ref, roots=allowed, max_bytes=inner)
+            for _ in range(16):
+                if tool_result_wire_bytes(payload) <= budget:
+                    return call_tool_result(payload)
+                inner = max(256, inner - (tool_result_wire_bytes(payload) - budget) - 32)
+                payload = expand_reference(database, ref, roots=allowed, max_bytes=inner)
+            return call_tool_result(expand_reference(database, ref, roots=allowed, max_bytes=256))
 
         return _invoke(error_type, run)
 

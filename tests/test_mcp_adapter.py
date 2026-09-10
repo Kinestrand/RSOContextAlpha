@@ -211,6 +211,57 @@ anyio.run(main)
             self.assertTrue(payload["protocol_version"])
             self.assertEqual(payload["server_name"], "rso-context")
 
+    def test_query_wire_result_stays_within_byte_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "bounded"
+            workspace.mkdir()
+            body = "Decision: widgets must stay blue.\n" + ("widgets extra line\n" * 80)
+            (workspace / "AGENTS.md").write_text(body, encoding="utf-8")
+            db = Path(tmp) / "context.sqlite3"
+            probe = r"""
+import json, os, sys
+from pathlib import Path
+import anyio
+from mcp import Client, StdioServerParameters
+
+db, root, src = sys.argv[1], sys.argv[2], sys.argv[3]
+budget = 4000
+env = os.environ.copy()
+env["PYTHONPATH"] = src
+env["RSO_MCP_IN_RUNTIME"] = "1"
+params = StdioServerParameters(
+    command=sys.executable,
+    args=["-X", "utf8", "-m", "rso_context", "mcp", "--db", db, "--root", root],
+    env=env,
+    cwd=str(Path(src).parent),
+)
+
+async def main():
+    async with Client(params) as client:
+        await client.call_tool("rso_use", {"path": root, "agent": "wire"})
+        result = await client.call_tool(
+            "rso_query",
+            {"query": "widgets", "path": root, "agent": "wire", "byte_budget": budget},
+        )
+        dumped = result.model_dump(mode="json", by_alias=True, exclude_none=True)
+        message = {"jsonrpc": "2.0", "id": 1, "result": dumped}
+        wire = len(json.dumps(message, ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
+        print(json.dumps({
+            "wire_bytes": wire,
+            "budget": budget,
+            "has_structured": result.structured_content is not None,
+            "is_error": bool(result.is_error),
+        }, sort_keys=True))
+
+anyio.run(main)
+"""
+            payload = _run_isolated(
+                self.python, probe, str(db), str(workspace), str(ROOT / "src")
+            )
+            self.assertFalse(payload["is_error"])
+            self.assertFalse(payload["has_structured"])
+            self.assertLessEqual(payload["wire_bytes"], payload["budget"])
+
 
 SHARED_LEDGER_PROBE = r"""
 import asyncio, json, os, sys
