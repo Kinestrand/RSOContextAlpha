@@ -1,12 +1,13 @@
 # RSO Context Alpha roadmap
 
-## Next build: 0.8.0
+## Current build: 0.8.0
 
-The September 9, 2026 planning pass is in [BUILD-0.8.0-PLAN.md](BUILD-0.8.0-PLAN.md): local MCP access, bounded evidence packets with expansion, client setup, and release verification. Status: Days 1-7 landed on 2026-09-10; private artifact built; not a public ship. Live Codex/Claude Code host tests and native macOS remain unverified. Estimated effort is 30-42 focused hours over September 10-17, with September 18 contingency, conditional on the stated staffing and start date. This is a work schedule, not a background automation.
+The September 9 planning pass is in [BUILD-0.8.0-PLAN.md](BUILD-0.8.0-PLAN.md). The 0.8.0 MCP adapter, bounded packets, client setup, and follow-up compatibility fixes are implemented. Live Codex use/resume/query/explain/expand were checked on Windows on September 10; live Claude Code and native macOS remain unverified. [VERIFICATION.md](VERIFICATION.md) records the exact scope. The original 30-42-hour schedule is historical planning, not a current commitment or background automation. Repository visibility stays private.
 
 The sections below preserve the earlier 0.4-0.7 roadmap and historical estimates.
 
 This is the build list after reading V4.1 (Google Doc) against the live alpha.
+RSO means Recursive Semantic Octree. [RESEARCH-ORIGIN.md](RESEARCH-ORIGIN.md) identifies the paper and explains its proposed approach.
 It is RSO-inspired: keep the paper's production discipline, leave speculative geometry off the hot path.
 
 Do not add embeddings, hyperbolic distance, learned axis controllers, Monte Carlo solvers, self-healing, or provider APIs unless a later measured test shows they earn their cost.

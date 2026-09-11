@@ -60,6 +60,10 @@ Native macOS execution remains unverified. Supplying a POSIX launcher does not e
 
 ## Repository boundaries
 
+Before publishing, review the staged paths and the commit range being pushed. Keep personal indexes (including SQLite WAL/SHM sidecars), local MCP configurations, credentials, source-project data, and backup archives outside Git. `.gitignore` does not remove already tracked files. Use an explicit file list when staging, and verify the release archive against `RELEASE-FILES.txt`; retain LICENSE and NOTICE. Publishing reviewed code does not authorize changing repository visibility.
+
+Keep [VERIFICATION.md](VERIFICATION.md) current when recording new live-host results. Use generic workspace descriptions; never attach a personal ledger, local configuration, or private project evidence as a test report. [RESEARCH-ORIGIN.md](RESEARCH-ORIGIN.md) records the name and proposed research contribution separately from implemented behavior.
+
 Track source, tests, project instructions, documentation, and build configuration. `.gitignore` excludes personal SQLite files, credentials, generated archives, bytecode, Graft output, old repair notes, and machine-local coordination/MCP state. Package contents remain controlled by the separate release allowlist. Both LICENSE and NOTICE are required in release archives and installations; preserve applicable third-party notices if dependencies are added.
 
 The initial Git commit imports the current standalone source snapshot. Historical repair copies remain local and are not Git history. Future builds should come from this repository and record the commit being built.

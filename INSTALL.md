@@ -30,6 +30,14 @@ rso-context mcp --remove --client codex
 
 Isolated checks must pass `--config <file>`. Do not point tests at a live user config. Setup and removal rewrite only the `rso-context` tables; other `[mcp_servers.*]` headers, including those with trailing comments, stay in place. MCP query and explain omit sources outside the launch `--root` folders. `rso_query` sends a text-only tool result so the JSON-RPC `tools/call` payload stays within `byte_budget`. Other clients can launch the stdio command printed by `doctor` under `mcp_clients.stdio`; that is not a tested compatibility claim. Tool discovery is not automatic use: still call `rso_use` then `rso_query` with the actual task.
 
+## Register permitted projects
+
+Before using MCP, distinguish permission from registration: launch `--root` values permit access, but do not ingest files. Call `rso_use` with the permitted project path and current agent name, then `rso_query`. A second permitted folder needs its own `rso_use`. An unregistered-project error calls for registration and ingestion, not broader filesystem permissions. `rso_resume` alone does not ingest.
+
+Repeat `--setup` replaces the RSO entry; it does not accumulate previously configured roots. Preserve the intended bounded roots when changing a launch configuration. Restart or reconnect the host's MCP server after changing launch arguments. Registering or ingesting an already-permitted folder needs no configuration change.
+
+Live Codex checks on Windows are recorded in [VERIFICATION.md](VERIFICATION.md). Claude Code and native macOS remain unverified.
+
 ## Windows
 
 Run PowerShell in the extracted release folder:
@@ -109,7 +117,7 @@ rso-context --db <scratch-directory>/context.sqlite3 use --agent <current-agent-
 
 ## Agent adapter
 
-Copy `SKILL.md`, `INSTALL.md`, and `references/` into the client's supported `rso-context` skill folder. Common roots are `~/.codex/skills/rso-context`, `~/.claude/skills/rso-context`, `~/.grok/skills/rso-context`, and `~/.agents/skills/rso-context`. The installer doesn't register skills with agent applications. Use each client's own name for `--agent`; local clients can share one CLI and per-user index.
+Register `SKILL.md` from the installed package when the client supports a skill path, so its relative documentation links remain available. If the client requires a copied skill directory, preserve the accompanying documentation and `references/` layout. Common roots are `~/.codex/skills/rso-context`, `~/.claude/skills/rso-context`, `~/.grok/skills/rso-context`, and `~/.agents/skills/rso-context`. The installer doesn't register skills with agent applications. Use each client's own name for `--agent`; local clients can share one CLI and per-user index.
 
 ## Upgrade and removal
 

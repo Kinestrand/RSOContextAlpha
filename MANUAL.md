@@ -1,5 +1,7 @@
 # RSO Context Alpha manual
 
+RSO means Recursive Semantic Octree. [RESEARCH-ORIGIN.md](RESEARCH-ORIGIN.md) explains the research proposal and the smaller evidence-ledger implementation supplied here.
+
 This manual describes the 0.8.0 CLI. Commands return JSON unless they're help/version output or the local browser viewer. Replace `<current-agent-name>` with the actual client identity and `<workspace>` with an absolute, bounded project directory. Installation is covered in [INSTALL.md](INSTALL.md).
 
 ## 1. Give the project something to remember
@@ -152,9 +154,13 @@ rso-context mcp --remove --client claude-code
 
 ## 9. Troubleshooting
 
+An MCP launch allowlist controls access; it does not populate the ledger. Use `rso_use` separately for each permitted project before `rso_query`. Refresh ingestion after edits. Updating an index does not update or synchronize source files between project copies. See [VERIFICATION.md](VERIFICATION.md) for tested host behavior.
+
 | Symptom | Action |
 | --- | --- |
 | Command isn't found | Use the installed command's full path from INSTALL.md, then add its `bin` folder to PATH |
+| MCP says no registered project | Call `rso_use` with that permitted bounded path and the current agent name, then retry the query |
+| MCP refuses a path outside its roots | Check the exact project path and configured bounded roots; registration cannot override launch permissions |
 | Python launcher is missing or too old | Install Python 3.11+ and rerun the installer with that interpreter |
 | `doctor` isn't ready | Read its JSON; check Git on PATH, FTS5 availability, and database permissions |
 | File doesn't appear | Check Git tracking, extension, size, exclusions, and the intended project path; run `ingest` |

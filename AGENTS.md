@@ -1,6 +1,7 @@
 # RSO Context Alpha
 
 ## Intent
+RSO means Recursive Semantic Octree, from Paul Griswold's research paper. `RESEARCH-ORIGIN.md` explains the proposal and the implemented evidence-ledger subset. Do not claim the application implements or validates the full research architecture.
 This project must give agents a local, shared evidence ledger over bounded project folders.
 The canonical workspace is this folder. Do not treat git worktrees, Antigravity copies, Codex output dumps, or paper checkouts as this project.
 Agents are clients. The SQLite service owns persistence and project identity.
@@ -31,6 +32,7 @@ Do not use provider APIs, embeddings, screen capture, keystrokes, or browser his
 ## Indexing
 RSO does not learn from chat. It re-reads files.
 Required before context work: ingest this folder, then resume, then query with the actual task.
+MCP launch roots grant access; they do not register or ingest folders. Call `rso_use` for each permitted project before querying it. Never widen access to resolve an unregistered-project error. Source synchronization and index refresh are separate operations.
 Git ingest uses tracked files only (`git ls-files --cached`). Never ingest `private/`, gitignored files, backups, or output folders.
 Do not register a user profile.
 `ingest` must skip unchanged files and re-chunk files that changed.

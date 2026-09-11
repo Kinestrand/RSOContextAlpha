@@ -81,6 +81,14 @@ Query packets include `search_order`: the active project, then parent domain pro
 
 The alpha does not use provider APIs, embeddings, screen capture, keystrokes, browser histories, or private-message monitoring. Its observer reads supported files inside registered project folders and Git metadata available through the local `git` executable.
 
-## Portable clients
+## Optional local MCP
 
-Use Python 3.11+, Git, and SQLite FTS5. See INSTALL.md for Windows/macOS layouts and installation. macOS execution has not been verified on a Mac for this release. CLI JSON uses ASCII escapes for Unicode transport; JSON parsing restores original characters. RSO exposes a local CLI, not a bundled harness or provider service.
+The stdio adapter uses the same local ledger and project identity as the CLI. Launch roots define permitted filesystem access; they do not register projects. For each permitted bounded folder, `rso_use` registers, ingests, and returns a resume packet. `rso_resume` and `rso_query` require registration and do not ingest. Refresh with `rso_use` after source changes. Source-file synchronization is outside this protocol.
+
+Tools never accept a database path; the server binds it at launch. `rso_use` and `rso_query` write ledger state. Compact MCP queries return `rso-mcp-packet/v1`, including the complete tools/call response within `byte_budget`. If required evidence cannot fit, the response is `insufficient_budget`; omitted evidence is recovered with `rso_expand` using its supplied reference. Expansion checks source hashes and reports stale or unavailable evidence rather than accepting changed text. CLI query remains `rso-context-packet/v2` unless compact output is requested.
+
+Live-host observations and remaining client limitations are recorded in `VERIFICATION.md`. Local MCP configuration and ledger exports are not release files.
+
+## Portable clients and runtime
+
+Use Python 3.11+, Git, and SQLite FTS5. See INSTALL.md for Windows/macOS layouts and installation. macOS execution has not been verified on a Mac for this release. CLI JSON uses ASCII escapes for Unicode transport; JSON parsing restores original characters. RSO exposes a local CLI and optional stdio MCP adapter, not a bundled harness or provider service.

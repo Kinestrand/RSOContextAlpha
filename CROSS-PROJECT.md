@@ -9,3 +9,5 @@ Shared rules live as files (plates). Content hash is the version. A project that
 Runtime formulas and vendor caps execute in code (Graft). RSO points at the file that states the rule.
 
 Studio work and class work must not share one concept space.
+
+MCP launch roots only permit access. Each project must be registered and ingested, normally with `rso_use`, before retrieval. Repeat that bring-up for each allowed folder. Query and resume do not ingest, and RSO never synchronizes source files between checkouts or promotes a copy into an authoritative repository.

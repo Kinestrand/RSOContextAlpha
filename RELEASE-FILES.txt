@@ -1,5 +1,7 @@
 # Explicit release allowlist, one relative file per line. No local state.
 README.md
+RESEARCH-ORIGIN.md
+VERIFICATION.md
 QUICKSTART.md
 LICENSE
 NOTICE

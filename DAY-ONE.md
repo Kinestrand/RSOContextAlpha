@@ -2,6 +2,8 @@
 
 RSO Context is useful on a brand-new project only if the project writes something it can ingest. It does not learn from conversation. Usefulness increases as the folder grows, because ingest re-reads files.
 
+RSO means Recursive Semantic Octree; see `RESEARCH-ORIGIN.md` for the research origin. If using MCP, allowing this folder in `--root` is not enough to make it searchable. Call `rso_use` to register and ingest it, then query. Repeat for each permitted project.
+
 ## How the index stays current
 
 `ingest` is incremental. Unchanged files are skipped (size, mtime, then content hash). New or edited files are chunked. Policy-like sentences become **observed** claims. Old file versions stay in the database; queries return current active sources only.

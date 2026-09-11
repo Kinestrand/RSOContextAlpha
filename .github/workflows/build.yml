@@ -30,12 +30,12 @@ jobs:
         run: python -B -m unittest discover -s tests -v
       - name: Build release ZIP
         if: matrix.python == '3.11'
-        run: python -B build_release.py --output outputs/RSOContextAlpha-0.7.0.zip
+        run: python -B build_release.py --output outputs/RSOContextAlpha-0.8.0.zip
       - name: Save build artifact
         if: matrix.python == '3.11'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: RSOContextAlpha-0.7.0-${{ github.sha }}
-          path: outputs/RSOContextAlpha-0.7.0.zip
+          name: RSOContextAlpha-0.8.0-${{ github.sha }}
+          path: outputs/RSOContextAlpha-0.8.0.zip
           if-no-files-found: error
           retention-days: 7

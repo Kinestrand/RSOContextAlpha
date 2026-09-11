@@ -8,6 +8,8 @@ RSO runs on your computer. It reads project files and returns matching evidence.
 For example, it can find the file that says your preview must be 24 fps.
 You can use it directly or ask a local coding agent to use it for you.
 
+RSO stands for **Recursive Semantic Octree**, the research proposal that inspired this application. [Research origin](RESEARCH-ORIGIN.md) explains it in plain language.
+
 These steps are for Windows. macOS instructions are in
 [INSTALL.md](INSTALL.md#macos); native macOS execution is still unverified.
 
@@ -161,6 +163,8 @@ RSO's installer doesn't connect it to an agent application automatically. Skill
 setup depends on that application; [INSTALL.md](INSTALL.md#agent-adapter)
 describes the supplied adapter files. Until persistent setup is confirmed,
 repeat the request when starting a new conversation.
+
+If your agent uses MCP, giving it permission to access a project folder is only the first step. Ask it to call `rso_use` for that folder, then query it. Repeat this for each project you want searchable. A permitted folder can still be unregistered. RSO does not copy files between projects.
 
 To use RSO manually, run this block. The first line asks you to paste your real
 project path; paste it without surrounding quote marks and press Enter:

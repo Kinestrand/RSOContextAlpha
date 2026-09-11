@@ -1,6 +1,6 @@
 # RSO 0.8.0 build plan
 
-Prepared September 9, 2026. Status: Days 1-7 implemented on `feat/0.8.0-mcp`. Private 0.8.0 artifact built; Day 7 contingency locked space-path MCP launch and Grok skill-path docs. Not a public release. Live Codex/Claude Code host tests and native macOS remain unverified.
+Prepared September 9, 2026; status updated September 10. Days 1-7 and follow-up runtime, configuration-preservation, scope, and wire-budget fixes are implemented. Live Codex use/resume/query/explain/expand now pass on Windows against existing bounded workspaces. Claude Code and native macOS remain unverified; the full disposable-project host acceptance requirement below is not complete. See [VERIFICATION.md](VERIFICATION.md). Dated records below describe their original sessions; statements that nothing was pushed or no live host was tested are historical, not current status.
 
 ## Outcome and scope
 

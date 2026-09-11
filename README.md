@@ -1,5 +1,7 @@
 # RSO Context Alpha 0.8.0
 
+**RSO means Recursive Semantic Octree**, from Paul Griswold's research paper. [Research origin](RESEARCH-ORIGIN.md) explains the graphics-inspired proposal and which parts this application implements.
+
 RSO Context is a local evidence ledger for agents working with project files. It gives different agents a shared way to retrieve current requirements, decisions, source references, and recorded approvals from the same bounded project folder.
 
 For example, a project file might say, "Decision: export the preview at 24 fps." RSO can return that sentence with its file path, line range, and content hash. If the file changes, the next ingest records a new version. If someone explicitly approves a claim, their named validation can travel with the evidence.
@@ -25,6 +27,8 @@ coding agent to have it perform setup.
 
 Replace angle-bracket placeholders before running commands. `use` registers the folder, ingests its files, and returns a resume packet. `query` retrieves evidence for the actual task.
 
+MCP permissions and searchable context are separate. A launch `--root` permits access to a folder; it does not register or ingest it. Call `rso_use` for each permitted project before querying it. Re-ingest after file changes. Copies keep their own project identity; RSO does not copy or update their source files.
+
 ## What it keeps separate
 
 An **observed** claim means a source contains a statement. A **proposed** claim is a suggestion awaiting review. **Verified**, **disputed**, and **superseded** are named validation states. Repetition, search ranking, and agent agreement don't approve a claim.
@@ -43,9 +47,11 @@ Paul Griswold's evaluation, September 5, 2026: RSO has been tested with Graft in
 
 Development lives in the [paulrus/rso-context](https://github.com/paulrus/rso-context) repository. See [DEVELOPMENT.md](DEVELOPMENT.md) for checkout, testing, and release-build commands. RSO builds independently of the projects it indexes.
 
-This is an alpha. Windows checks are included in the release tests. A POSIX launcher and macOS installation instructions are supplied, but macOS execution hasn't been tested on a Mac for this release. Python 3.11 or newer, Git, and SQLite FTS5 support are required. The core CLI needs no third-party Python packages or provider account. The optional MCP adapter is the only shipped pip install, and `doctor` / `mcp --status` must report exactly `mcp==2.2.0` (`runtime_mcp_version` `2.2.0`) before that adapter is ready. Live Codex and Claude Code host tests and native macOS execution remain unverified.
+This is an alpha. Windows checks are included in the release tests. Python 3.11 or newer, Git, and SQLite FTS5 support are required. The core CLI needs no third-party Python packages or provider account. The optional MCP adapter is the only shipped pip install, and `doctor` / `mcp --status` must report exactly `mcp==2.2.0` (`runtime_mcp_version` `2.2.0`) before that adapter is ready. Live Codex MCP use, resume, query, explain, and expansion were checked on Windows on September 10, 2026. Live Claude Code and native macOS execution remain unverified. See [verification status](VERIFICATION.md) for the scope of those checks.
 
 The ZIP contains the program, installer, documentation, a project interview, and focused regression tests. It doesn't contain a personal index, credentials, agent configuration, or internal repair notes. Each recipient starts their own ledger. [RELEASE-FILES.txt](RELEASE-FILES.txt) is the explicit package allowlist.
+
+The private ledger can contain searchable source text and metadata. Keep it, its backups, local MCP configuration, and indexed project data outside source commits and releases. Publishing RSO's code does not authorize publishing those files or changing repository visibility.
 
 ## License
 

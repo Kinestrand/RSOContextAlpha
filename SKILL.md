@@ -9,6 +9,8 @@ description: >-
 
 # RSO Context
 
+RSO means Recursive Semantic Octree, from Paul Griswold's research proposal. This application implements an evidence-ledger subset, not the full geometric reasoning architecture. See [RESEARCH-ORIGIN.md](RESEARCH-ORIGIN.md) and [VERIFICATION.md](VERIFICATION.md).
+
 Use the external RSO Context service as a shared evidence layer. The service owns
 persistence and project identity; the current agent is only a client.
 
@@ -57,6 +59,8 @@ rso-context query "<actual user task>" --agent <current-agent-name> --path <boun
 Do not register a user profile, `Documents`, `Downloads`, or an entire cloud root. Automatic discovery roots are only the current working directory and `$RSO_CONTEXT_ROOTS`. `rso-context watch --path <workspace> --once` polls one already-registered folder; roots stay bounded.
 
 ## MCP adapter
+
+Launch roots grant access only. They do not register or ingest projects. Call `rso_use` for each permitted bounded path before querying it; `rso_resume` does not ingest. A copied checkout remains a separately registered context, and ingestion does not synchronize its files with another checkout. Never widen roots to fix an unregistered-project error. If launch roots change, reconnect the host; ingestion under an existing permitted root does not need a restart.
 
 Optional local stdio MCP uses the same core functions as the CLI. Pin and verify isolated `mcp==2.2.0`; `doctor` / `mcp --status` `runtime_ready` is true only for that exact version. **Tool discovery is not a promise of automatic use.** After the host lists `rso_use` / `rso_query`, still call them (or the CLI) with the current agent name and the actual task:
 

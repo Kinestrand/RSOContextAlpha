@@ -1,5 +1,7 @@
 # RSO Context, for people who already ship agents
 
+RSO means **Recursive Semantic Octree**, from Paul Griswold's research paper. [RESEARCH-ORIGIN.md](RESEARCH-ORIGIN.md) explains the proposed graphics-inspired partitioning and Match Move audit, and separates that research from this application's implemented subset.
+
 This is a positioning note, not a specification. It assumes you already know agent loops, tools/skills, retrieval, and “second brains.” It does not describe internal algorithms.
 
 ## What it is
@@ -7,6 +9,8 @@ This is a positioning note, not a specification. It assumes you already know age
 RSO Context is a **local evidence ledger** that agents share. It is not the agent’s memory, not a notes vault, and not a skill full of facts.
 
 The service sits **outside the model**. It indexes bounded project folders you registered. Agents are clients: they ask for context, they do not own the store, the parsing rules, or the trust decisions. Chat is not a source. If nobody wrote it in a file, it did not happen as far as RSO is concerned.
+
+An MCP launch root is an access boundary, not a registration action. Use `rso_use` for each permitted workspace to register, ingest, and resume it. Query and resume do not refresh files. Indexing two checkouts neither synchronizes their source nor makes one authoritative. Live Codex results and remaining host limitations are in [VERIFICATION.md](VERIFICATION.md).
 
 A typical skill *is* the knowledge (“remember that we use X”). RSO’s skill only says **when** to call the ledger and how to read what came back. Codex, Claude, Graft-using coding agents, and a local script can all hit the same index.
 
