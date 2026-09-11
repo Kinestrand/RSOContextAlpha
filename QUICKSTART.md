@@ -15,8 +15,8 @@ These steps are for Windows. macOS instructions are in
 
 ## 1. Download and extract
 
-1. Open [RSO on GitHub](https://github.com/paulrus/rso-context).
-2. Above the file list, click **Code**, then **Download ZIP**.
+1. Open the [RSO 0.8.0 release](https://github.com/paulrus/rso-context/releases/tag/v0.8.0).
+2. Under **Assets**, download **RSOContextAlpha-0.8.0.zip**.
 3. In File Explorer, open Downloads. Right-click the downloaded ZIP and choose
    **Extract All**, then **Extract**.
 4. Open the extracted folder, then any folder inside it, until you can see
@@ -24,8 +24,9 @@ These steps are for Windows. macOS instructions are in
    hide the `.py`, `.md`, and `.txt` endings.
 
 You don't need to fork the repository, clone it, or use GitHub Actions.
-The source ZIP contains the installer. If you already have an RSO release ZIP,
-extract it and find the same files.
+The packaged ZIP is tied to version 0.8.0. For development, **Code > Download ZIP**
+on the repository downloads the current branch instead; it also contains the
+installer, but can include changes newer than a tagged release.
 
 If GitHub shows 404, sign in with an account that has access. While the repository
 is private, its owner must grant access before you can download it.

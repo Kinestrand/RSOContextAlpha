@@ -58,6 +58,39 @@ Pushes and pull requests to `main` run the regression suite on Windows with Pyth
 
 Native macOS execution remains unverified. Supplying a POSIX launcher does not establish macOS test coverage.
 
+## Publish a versioned release
+
+Pushing source, building a ZIP, and publishing a GitHub Release are separate
+steps. An Actions artifact expires and does not create a release. A release is
+complete only after the version tag, release page, downloadable package, and
+checksum are visible to an authorized repository reader.
+
+1. Confirm the intended source commit and clean owned paths. Update the runtime
+   version, README, changelog, installer examples, build guard/prefix, tests,
+   workflow artifact name, and release allowlist together where applicable.
+2. Run the regression suite and build a new archive. Check its exact allowlist,
+   internal links, LICENSE/NOTICE, and installation with a temporary prefix and
+   a scratch database. Record the package SHA-256 and source commit.
+3. Push the reviewed commit to the default branch without force. Check that
+   GitHub's branch README and version match and that required CI checks pass.
+4. Create the version tag at that exact commit. Create a GitHub Release targeting
+   the tag; attach the packaged ZIP and its checksum file. Copy the version's
+   changes and verification limits into the release notes. Do not treat alpha
+   software as proven across untested hosts.
+5. Read the release back from GitHub. Verify its target commit, asset names and
+   sizes, checksum, version, and repository visibility. Follow the README's
+   download link and confirm it resolves to this release. Report the actual
+   release URL, not only a branch or transient Actions artifact.
+
+Release publication must preserve repository visibility. Do not overwrite an
+existing version tag or replace a published package silently. If a published
+version needs a code correction, prepare a new version with its own evidence.
+
+The release package is built only from [RELEASE-FILES.txt](RELEASE-FILES.txt).
+Developer-only benchmarks can live in the source repository without being
+installed. Raw host transcripts and benchmark ledgers stay in ignored outputs;
+publish only sanitized, accurately scoped verification summaries.
+
 ## Repository boundaries
 
 Before publishing, review the staged paths and the commit range being pushed. Keep personal indexes (including SQLite WAL/SHM sidecars), local MCP configurations, credentials, source-project data, and backup archives outside Git. `.gitignore` does not remove already tracked files. Use an explicit file list when staging, and verify the release archive against `RELEASE-FILES.txt`; retain LICENSE and NOTICE. Publishing reviewed code does not authorize changing repository visibility.

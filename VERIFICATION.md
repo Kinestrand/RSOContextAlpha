@@ -1,6 +1,6 @@
 # RSO 0.8.0 verification status
 
-Updated September 10, 2026. This record separates observed checks from untested environments. It contains no local project paths, source excerpts, account configuration, or ledger exports.
+Updated September 11, 2026 (UTC). This record separates observed checks from untested environments. It contains no local project paths, source excerpts, account configuration, or ledger exports.
 
 ## Live Codex on Windows
 
@@ -14,9 +14,29 @@ These were live checks against existing local workspaces. They establish this in
 
 The September 10 documentation refresh passed all 78 regression tests on Windows. The suite includes scratch-ledger CLI/MCP checks, response budgets, project isolation, current-source handling, configuration preservation, installation, exact archive contents, documentation links, and identical protocol copies. GitHub's build workflow now labels its artifact as 0.8.0, matching the package version.
 
+The September 11 release-preparation run also passed all 78 tests. The expanded
+documentation passed an additional local Markdown-anchor check. The packaged
+ZIP was extracted and installed into a temporary prefix; the installed command
+reported 0.8.0, `doctor` reported ready, and scratch `use`/`query` returned current
+synthetic-source evidence. Publication checks and the package checksum are
+recorded on the versioned GitHub release page.
+
+## Three-host CLI trial
+
+Codex, Claude Code, and Antigravity returned saved CLI results from the same
+disposable project and scratch ledger. Phase 1 returned the initial settings
+with observed status and matching packet hashes. Phase 2 returned the changed
+authoritative settings despite a retained historical handoff. The three agents'
+answers and source citations were checked against the synthetic fixture.
+
+These are two completed phases of an ongoing five-phase host trial. They do not
+establish MCP compatibility in Claude Code or Antigravity, concurrent execution
+of every request, or completion of the RSO-on/off comparison. Codex authored the
+fixture and was not blinded. No performance advantage is claimed.
+
 ## Remaining verification limits
 
-- Live Claude Code use/query/expand and native macOS execution remain unverified.
+- Live Claude Code MCP use/query/expand and native macOS execution remain unverified.
 - SDK-driven scratch tests are separate from live host checks.
 - Secret filtering is a precaution, not proof that arbitrary confidential text can be safely published. The ledger contains searchable source text and metadata even when chunk bodies are pointers.
 - Repository publication and package creation do not include an index or synchronize users' project files. Source releases use the explicit allowlist in `RELEASE-FILES.txt` and retain LICENSE and NOTICE.

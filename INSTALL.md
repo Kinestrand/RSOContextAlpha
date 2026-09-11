@@ -5,38 +5,23 @@ with [QUICKSTART.md](QUICKSTART.md).
 
 Extract the release ZIP before installing. The installer copies only files listed in `RELEASE-FILES.txt`. Each person keeps their own index. An agent asked to install and use RSO should perform installation and checks itself.
 
+## Contents
+
+- [Requirements](#requirements)
+- [Windows](#windows)
+- [macOS](#macos)
+- [First project](#first-project)
+- [Custom installation and isolated checks](#custom-installation-and-isolated-checks)
+- [Optional MCP adapter](#optional-mcp-adapter)
+- [Register permitted projects](#register-permitted-projects)
+- [Agent adapter](#agent-adapter)
+- [Upgrade and removal](#upgrade-and-removal)
+
 ## Requirements
 
 Python **3.11 or newer**, Git on PATH, and Python's standard-library SQLite with FTS5 are required. The installed Windows command launches Python directly. PowerShell is needed only for the optional `.ps1` launcher and PowerShell examples. The core program needs no pip packages, API key, model account, or network service. The installer checks Python and Git; `doctor` checks SQLite afterward.
 
 The POSIX launcher and macOS instructions are supplied, but native macOS execution hasn't been tested for this release.
-
-## Optional MCP adapter
-
-The CLI needs no pip packages. The optional stdio MCP adapter pins `mcp==2.2.0` in an isolated venv. After `--install-runtime`, `mcp --status` and `doctor` must report `sdk_requirement` `mcp==2.2.0` and `runtime_mcp_version` `2.2.0`. A 2.x SDK that is not 2.2.0 is not ready.
-
-```text
-rso-context mcp --install-runtime
-rso-context mcp --status
-```
-
-Setup writes only an RSO-owned `rso-context` server entry. Codex uses `config.toml` `[mcp_servers.rso-context]`. Claude Code uses `mcpServers.rso-context` in `.claude.json`. Repeat setup replaces that entry and leaves other servers in place. Removal deletes only `rso-context`.
-
-```text
-rso-context mcp --setup --client codex --root <bounded-project-folder>
-rso-context mcp --setup --client claude-code --root <bounded-project-folder>
-rso-context mcp --remove --client codex
-```
-
-Isolated checks must pass `--config <file>`. Do not point tests at a live user config. Setup and removal rewrite only the `rso-context` tables; other `[mcp_servers.*]` headers, including those with trailing comments, stay in place. MCP query and explain omit sources outside the launch `--root` folders. `rso_query` sends a text-only tool result so the JSON-RPC `tools/call` payload stays within `byte_budget`. Other clients can launch the stdio command printed by `doctor` under `mcp_clients.stdio`; that is not a tested compatibility claim. Tool discovery is not automatic use: still call `rso_use` then `rso_query` with the actual task.
-
-## Register permitted projects
-
-Before using MCP, distinguish permission from registration: launch `--root` values permit access, but do not ingest files. Call `rso_use` with the permitted project path and current agent name, then `rso_query`. A second permitted folder needs its own `rso_use`. An unregistered-project error calls for registration and ingestion, not broader filesystem permissions. `rso_resume` alone does not ingest.
-
-Repeat `--setup` replaces the RSO entry; it does not accumulate previously configured roots. Preserve the intended bounded roots when changing a launch configuration. Restart or reconnect the host's MCP server after changing launch arguments. Registering or ingesting an already-permitted folder needs no configuration change.
-
-Live Codex checks on Windows are recorded in [VERIFICATION.md](VERIFICATION.md). Claude Code and native macOS remain unverified.
 
 ## Windows
 
@@ -115,11 +100,44 @@ rso-context --db <scratch-directory>/context.sqlite3 use --agent <current-agent-
 
 `RSO_CONTEXT_HOME` can instead select a dedicated state directory. Don't edit SQLite directly or distribute someone else's index.
 
+## Optional MCP adapter
+
+The CLI needs no pip packages. The optional stdio MCP adapter pins `mcp==2.2.0` in an isolated venv. After `--install-runtime`, `mcp --status` and `doctor` must report `sdk_requirement` `mcp==2.2.0` and `runtime_mcp_version` `2.2.0`. A 2.x SDK that is not 2.2.0 is not ready.
+
+```text
+rso-context mcp --install-runtime
+rso-context mcp --status
+```
+
+Setup writes only an RSO-owned `rso-context` server entry. Codex uses `config.toml` `[mcp_servers.rso-context]`. Claude Code uses `mcpServers.rso-context` in `.claude.json`. Repeat setup replaces that entry and leaves other servers in place. Removal deletes only `rso-context`.
+
+```text
+rso-context mcp --setup --client codex --root <bounded-project-folder>
+rso-context mcp --setup --client claude-code --root <bounded-project-folder>
+rso-context mcp --remove --client codex
+```
+
+Isolated checks must pass `--config <file>`. Do not point tests at a live user config. Setup and removal rewrite only the `rso-context` tables; other `[mcp_servers.*]` headers, including those with trailing comments, stay in place. MCP query and explain omit sources outside the launch `--root` folders. `rso_query` sends a text-only tool result so the JSON-RPC `tools/call` payload stays within `byte_budget`. Other clients can launch the stdio command printed by `doctor` under `mcp_clients.stdio`; that is not a tested compatibility claim. Tool discovery is not automatic use: still call `rso_use` then `rso_query` with the actual task.
+
+## Register permitted projects
+
+Before using MCP, distinguish permission from registration: launch `--root` values permit access, but do not ingest files. Call `rso_use` with the permitted project path and current agent name, then `rso_query`. A second permitted folder needs its own `rso_use`. An unregistered-project error calls for registration and ingestion, not broader filesystem permissions. `rso_resume` alone does not ingest.
+
+Repeat `--setup` replaces the RSO entry; it does not accumulate previously configured roots. Preserve the intended bounded roots when changing a launch configuration. Restart or reconnect the host's MCP server after changing launch arguments. Registering or ingesting an already-permitted folder needs no configuration change.
+
+Live Codex checks on Windows are recorded in [VERIFICATION.md](VERIFICATION.md). Claude Code and native macOS remain unverified.
+
 ## Agent adapter
 
 Register `SKILL.md` from the installed package when the client supports a skill path, so its relative documentation links remain available. If the client requires a copied skill directory, preserve the accompanying documentation and `references/` layout. Common roots are `~/.codex/skills/rso-context`, `~/.claude/skills/rso-context`, `~/.grok/skills/rso-context`, and `~/.agents/skills/rso-context`. The installer doesn't register skills with agent applications. Use each client's own name for `--agent`; local clients can share one CLI and per-user index.
 
 ## Upgrade and removal
+
+Use the package attached to the [0.8.0 release](https://github.com/paulrus/rso-context/releases/tag/v0.8.0).
+The release ZIP, source branch, and installed program are distinct: downloading
+new source does not upgrade the installed command. Confirm the installed command
+reports `0.8.0` after running the installer. See [CHANGELOG.md](CHANGELOG.md) for
+the changes from 0.7.0.
 
 Run the new release's installer with the same prefix. Differing package files are backed up beside their targets with `.rso-backup-<id>` suffixes before replacement. Identical files are skipped; unrelated files are preserved. Keep backups until the upgraded program has been checked. Program upgrades don't copy or delete the index. After a schema 4 to 5 upgrade, run `rso-context compact-pointers` once.
 

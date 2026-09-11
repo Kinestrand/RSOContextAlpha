@@ -4,6 +4,20 @@ RSO means Recursive Semantic Octree. [RESEARCH-ORIGIN.md](RESEARCH-ORIGIN.md) ex
 
 This manual describes the 0.8.0 CLI. Commands return JSON unless they're help/version output or the local browser viewer. Replace `<current-agent-name>` with the actual client identity and `<workspace>` with an absolute, bounded project directory. Installation is covered in [INSTALL.md](INSTALL.md).
 
+## Contents
+
+1. [Give the project something to remember](#1-give-the-project-something-to-remember)
+2. [Start and resume work](#2-start-and-resume-work)
+3. [Read an evidence packet](#3-read-an-evidence-packet)
+4. [Propose and validate](#4-propose-and-validate)
+5. [Budgets, audits, and coordination cards](#5-budgets-audits-and-coordination-cards)
+6. [Multiple projects and agents](#6-multiple-projects-and-agents)
+7. [Keep the index current](#7-keep-the-index-current)
+8. [State and maintenance](#8-state-and-maintenance)
+9. [Troubleshooting](#9-troubleshooting)
+10. [Command reference](#10-command-reference)
+11. [MCP tool reference](#11-mcp-tool-reference)
+
 ## 1. Give the project something to remember
 
 RSO reads files, not conversations. Put durable requirements and decisions in a project-owned file such as `AGENTS.md` or `PROJECT-TRUTH.md`. An existing Git repository is also a project marker. For a new non-Git folder, add an `AGENTS.md` describing that project's intent and constraints.
@@ -100,6 +114,22 @@ The default run budget is 8. Set a fresh budget deliberately for a new bounded r
 
 Each agent should use its own `--agent` name. Agents on the same machine can use the same local index and project files. A second person's installation has its own index; the ZIP doesn't synchronize project data between computers.
 
+For a controlled handoff, both clients must select the same database and exact
+project path. Here `agent-a` and `agent-b` stand for their actual identities:
+
+```text
+rso-context --db <scratch-directory>/context.sqlite3 use --agent agent-a --path <workspace>
+rso-context --db <scratch-directory>/context.sqlite3 query "What delivery settings are required?" --agent agent-a --path <workspace>
+rso-context --db <scratch-directory>/context.sqlite3 use --agent agent-b --path <workspace>
+rso-context --db <scratch-directory>/context.sqlite3 query "What delivery settings are required?" --agent agent-b --path <workspace>
+```
+
+Compare the returned project identity, current source hashes, and citations.
+After one agent edits a source, refresh ingestion before the other queries it.
+Run budgets belong to an agent/project pair; sharing the ledger does not require
+sharing an agent name. Agent attribution is not an authentication boundary.
+Matching answers or packet hashes do not create a validation record.
+
 ```text
 rso-context register --agent <current-agent-name> --path <shared-rules-folder> --scope shared
 rso-context ingest --agent <current-agent-name> --path <shared-rules-folder>
@@ -182,3 +212,65 @@ PYTHONPATH=src python3 -B -m unittest discover -s tests -v
 ```
 
 Windows-only tests skip on other systems; passing a suite on Windows doesn't establish macOS runtime compatibility.
+
+## 10. Command reference
+
+Global options precede the command: `rso-context --db <file> <command> ...`.
+Run `<command> --help` for every option and default. Prefer explicit `--path`
+and `--agent` values in repeatable agent workflows.
+
+| Command | Purpose and common arguments |
+| --- | --- |
+| `init` | Initialize the selected database |
+| `doctor` | Check local runtime and selected database readiness |
+| `use` | Register, ingest, and resume; `--path`, required `--agent` |
+| `register` | Register a folder; `--path`, `--agent`, optional `--scope` |
+| `ingest` | Refresh one folder with `--path`; `--all` refreshes registered projects |
+| `resume` | Read current project summary without ingestion; `--path`, `--agent` |
+| `query` | Retrieve evidence for a positional question; `--path`, `--agent`, `--limit`, `--token-budget`, `--no-cache` |
+| `explain` | Read a saved packet by positional packet hash |
+| `explain-project` | Explain project matching for `--path` |
+| `propose` | File a positional suggestion; `--agent`, `--path` |
+| `pending` | List claims awaiting named validation; optional `--path` |
+| `record-validation` | Record an authorized decision for a claim ID; `--validator`, `--result` |
+| `run-budget` | Inspect or reset a budget; `--agent`, `--path`, optional `--set` |
+| `audit` | Compare a positional request and `--answer-file` against evidence |
+| `inbox` | Read open coordination cards; `--path`, optional `--topic`, `--limit` |
+| `watch` | Poll registered projects; use `--path` for one folder, `--once` for one poll |
+| `stats` | Read graph and corpus counts |
+| `validate` | Check ledger/evidence invariants; this does not approve claims |
+| `compact-pointers` | Convert reconstructable legacy chunk bodies to pointers |
+| `admin` | Start the read-only localhost viewer; optional `--port` |
+| `mcp` | Start stdio service or manage its runtime and host setup |
+| `discover` | Discover and register projects under explicit bounded roots |
+| `bootstrap` | Discover and ingest under explicit bounded roots |
+
+For a single project, `use` is the normal entry point. Do not use broad discovery
+roots as a workaround for a missing project. CLI `query --compact --byte-budget
+<bytes>` requests the compact format; it does not change the database or ingest.
+
+## 11. MCP tool reference
+
+Configure MCP only after the CLI works. See
+[installation](INSTALL.md#optional-mcp-adapter) for runtime and host setup.
+The launch command determines the database and allowed roots; tool calls cannot
+select another database. Use a separate launch with a scratch database for tests.
+
+| Tool | Purpose |
+| --- | --- |
+| `rso_use` | Register and ingest a permitted project, then return its summary |
+| `rso_resume` | Read a permitted registered project's summary without ingestion |
+| `rso_query` | Return a compact packet for the actual task within a byte budget |
+| `rso_explain` | Read a saved packet subject to launch-root filtering |
+| `rso_expand` | Recover omitted source spans using returned expansion references |
+
+Use the tool schema advertised by the connected server for exact arguments.
+If a packet is truncated, expand its references instead of inventing missing
+text. If expansion says stale or unavailable, reconcile the source and ingest
+again. A byte limit can produce `insufficient_budget`; a small result does not
+mean the source contains no answer.
+
+An installed server entry, successful tool discovery, and successful live tool
+calls are separate checks. If a running host has not loaded a new configuration,
+reconnect its MCP server or restart that host session. Meanwhile, an authorized
+CLI workflow can use the same explicit scratch database without an MCP reconnect.
