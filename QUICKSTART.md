@@ -15,7 +15,7 @@ These steps are for Windows. macOS instructions are in
 
 ## 1. Download and extract
 
-1. Open the [RSO 0.8.0 release](https://github.com/paulrus/rso-context/releases/tag/v0.8.0).
+1. Open the [RSO 0.8.0 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.8.0).
 2. Under **Assets**, download **RSOContextAlpha-0.8.0.zip**.
 3. In File Explorer, open Downloads. Right-click the downloaded ZIP and choose
    **Extract All**, then **Extract**.

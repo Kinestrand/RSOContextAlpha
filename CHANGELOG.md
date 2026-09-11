@@ -13,6 +13,9 @@
   and isolated configuration tests.
 - Research-origin and verification records, a documentation map, and a
   versioned release download with an explicit package manifest.
+- The Kinestrand repository retains its original regression suite alongside the
+  newer focused tests. Current documentation and downloads point to
+  `Kinestrand/RSOContextAlpha`.
 
 ### Fixed
 

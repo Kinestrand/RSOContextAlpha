@@ -1,6 +1,6 @@
 # RSO development and builds
 
-The source repository is https://github.com/paulrus/rso-context. RSO is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). Repository visibility is managed separately from licensing.
+The source repository is https://github.com/Kinestrand/RSOContextAlpha. RSO is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). Repository visibility is managed separately from licensing.
 
 RSO is a standalone Python project. Kinestrand and other projects may use its CLI, but this repository does not import their code, their evidence ledgers, or their coordination services. The CLI runtime uses Python's standard library and Git. The optional
 `rso-context mcp` adapter pins the official MCP Python SDK (`mcp==2.2.0`) in an
@@ -21,8 +21,8 @@ On the original Windows machine, `%USERPROFILE%\.local\RSOContextAlpha` is both 
 On another machine, clone the repository (GitHub authorization is required while it is private):
 
 ```text
-git clone https://github.com/paulrus/rso-context.git
-cd rso-context
+git clone https://github.com/Kinestrand/RSOContextAlpha.git
+cd RSOContextAlpha
 ```
 
 Install Python 3.11 or newer and Git. From PowerShell in the checkout, run:

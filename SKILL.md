@@ -9,6 +9,10 @@ description: >-
 
 # RSO Context
 
+Source and releases: `https://github.com/Kinestrand/RSOContextAlpha`.
+Use this repository for development, downloads, and issue links. The canonical
+local workspace remains `%USERPROFILE%\.local\RSOContextAlpha` on this machine.
+
 RSO means Recursive Semantic Octree, from Paul Griswold's research proposal. This application implements an evidence-ledger subset, not the full geometric reasoning architecture. See [RESEARCH-ORIGIN.md](RESEARCH-ORIGIN.md) and [VERIFICATION.md](VERIFICATION.md).
 
 Use the external RSO Context service as a shared evidence layer. The service owns

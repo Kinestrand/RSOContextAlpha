@@ -53,3 +53,5 @@ tests/test_install.py
 tests/test_query_freshness.py
 tests/test_release_files.py
 tests/test_release_fixtures.py
+tests/__init__.py
+tests/test_rso_context.py

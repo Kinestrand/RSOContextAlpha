@@ -1,6 +1,6 @@
 # RSO Context Alpha 0.8.0
 
-[Download 0.8.0](https://github.com/paulrus/rso-context/releases/tag/v0.8.0) ·
+[Download 0.8.0](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.8.0) ·
 [Quick-start](QUICKSTART.md) · [Installation](INSTALL.md) ·
 [Manual](MANUAL.md) · [Changes](CHANGELOG.md) · [Verification](VERIFICATION.md)
 
@@ -15,7 +15,7 @@ The files remain the source of truth. RSO doesn't learn from chat, call a model,
 ## Start here
 
 Download **RSOContextAlpha-0.8.0.zip** from the
-[0.8.0 release](https://github.com/paulrus/rso-context/releases/tag/v0.8.0) and
+[0.8.0 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.8.0) and
 extract it. The release page includes a SHA-256 checksum. GitHub access is
 required while the repository is private. A release ZIP is tied to a version;
 **Code > Download ZIP** downloads the selected branch's current source instead.
@@ -115,7 +115,7 @@ Paul Griswold's evaluation, September 5, 2026: RSO has been tested with Graft in
 
 ## Release boundaries
 
-Development lives in the [paulrus/rso-context](https://github.com/paulrus/rso-context) repository. See [DEVELOPMENT.md](DEVELOPMENT.md) for checkout, testing, and release-build commands. RSO builds independently of the projects it indexes.
+Development lives in the [Kinestrand/RSOContextAlpha](https://github.com/Kinestrand/RSOContextAlpha) repository. See [DEVELOPMENT.md](DEVELOPMENT.md) for checkout, testing, and release-build commands. RSO builds independently of the projects it indexes.
 
 This is an alpha. Windows checks are included in the release tests. Python 3.11 or newer, Git, and SQLite FTS5 support are required. The core CLI needs no third-party Python packages or provider account. The optional MCP adapter is the only shipped pip install, and `doctor` / `mcp --status` must report exactly `mcp==2.2.0` (`runtime_mcp_version` `2.2.0`) before that adapter is ready. Live Codex MCP use, resume, query, explain, and expansion were checked on Windows on September 10, 2026. Live Claude Code and native macOS execution remain unverified. See [verification status](VERIFICATION.md) for the scope of those checks.
 

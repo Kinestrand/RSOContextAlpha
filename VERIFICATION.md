@@ -21,6 +21,14 @@ reported 0.8.0, `doctor` reported ready, and scratch `use`/`query` returned curr
 synthetic-source evidence. Publication checks and the package checksum are
 recorded on the versioned GitHub release page.
 
+## Kinestrand repository integration
+
+The September 11 integration into `Kinestrand/RSOContextAlpha` retained both
+repository histories and the original Kinestrand test suite. All 103 combined
+regression tests passed locally on Windows (the 78 focused tests plus 25 original
+tests). The package manifest includes both suites. The versioned release and
+documentation links target the Kinestrand repository.
+
 ## Three-host CLI trial
 
 Codex, Claude Code, and Antigravity returned saved CLI results from the same
