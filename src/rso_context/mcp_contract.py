@@ -146,7 +146,8 @@ def resolve_tool_path(path: str | Path, roots: list[Path]) -> Path:
     for root in roots:
         if path_is_within_root(root, resolved):
             return resolved
-    raise ValueError("path is outside the server's allowed roots")
+    allowed = ", ".join(str(root) for root in roots) or "none"
+    raise ValueError(f"path is outside the server's allowed roots: {resolved} (allowed: {allowed})")
 
 
 def resolve_workspace_path(
