@@ -7,7 +7,7 @@ The canonical workspace is this folder. Do not treat git worktrees, Antigravity 
 Agents are clients. The SQLite service owns persistence and project identity.
 
 ## Repository and development
-The standalone source repository is `https://github.com/paulrus/rso-context`.
+The standalone source repository is `https://github.com/Kinestrand/RSOContextAlpha`.
 RSO is licensed under Apache-2.0; preserve LICENSE and NOTICE in releases and installations.
 Keep the repository private unless the user explicitly authorizes public disclosure. Licensing alone does not authorize changing repository visibility.
 This checkout owns RSO development and builds. Kinestrand and other indexed projects are clients, not source locations or build dependencies.

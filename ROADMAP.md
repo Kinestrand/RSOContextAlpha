@@ -14,7 +14,7 @@ Do not add embeddings, hyperbolic distance, learned axis controllers, Monte Carl
 
 ## Current development home
 
-RSO development and release builds belong to the private `paulrus/rso-context` repository. The installed Windows checkout remains `%USERPROFILE%\.local\RSOContextAlpha`. Other projects consume the CLI and are not build dependencies. See `DEVELOPMENT.md` for the build workflow.
+RSO development and release builds belong to the private `Kinestrand/RSOContextAlpha` repository. The installed Windows checkout remains `%USERPROFILE%\.local\RSOContextAlpha`. Other projects consume the CLI and are not build dependencies. See `DEVELOPMENT.md` for the build workflow.
 
 The earlier implementation estimates below are historical planning notes, not current commitments.
 

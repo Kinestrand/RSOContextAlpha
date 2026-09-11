@@ -133,7 +133,7 @@ Register `SKILL.md` from the installed package when the client supports a skill 
 
 ## Upgrade and removal
 
-Use the package attached to the [0.8.0 release](https://github.com/paulrus/rso-context/releases/tag/v0.8.0).
+Use the package attached to the [0.8.0 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.8.0).
 The release ZIP, source branch, and installed program are distinct: downloading
 new source does not upgrade the installed command. Confirm the installed command
 reports `0.8.0` after running the installer. See [CHANGELOG.md](CHANGELOG.md) for
