@@ -75,6 +75,20 @@ rso_query query="<actual user task>" path=<bounded-workspace> agent=<current-age
 
 MCP `rso_query` returns `rso-mcp-packet/v1` (compact) as text-only tool content so the JSON-RPC tools/call result stays within `byte_budget` (including a 4000-byte request). Compact packets stay within the requested byte budget, including fallback `insufficient_budget` packets. CLI `query` stays `rso-context-packet/v2` unless `--compact` is passed. Recover omitted spans with `rso_expand`, not by guessing. MCP query and explain omit sources whose files sit outside launch `--root` folders.
 
+If `status` is `insufficient_budget`, an empty `evidence` list does not establish
+that retrieval found nothing. When `source_packet_hash` is present, call
+`rso_explain(packet_hash=<source_packet_hash>)` to recover the saved packet
+under the same launch-root restrictions. Inspect the returned `packet`,
+including requirements and disagreements. Explain can return a larger response;
+use `rso_expand` when the compact packet supplies individual expansion references.
+
+Check tool availability in each agent's host. If a sub-agent has file tools but
+no RSO MCP access, the parent can run `rso_use` and `rso_query`, recover the
+needed evidence, and include it in the sub-agent's prompt. Preserve source
+paths, spans, hashes, trust states, freshness, and unresolved disagreements.
+Describe this as parent-supplied evidence, not a direct sub-agent RSO call.
+Missing tools in that host do not by themselves show that RSO is unavailable.
+
 ```text
 rso-context mcp --install-runtime
 rso-context mcp --setup --client codex --root <bounded-workspace>

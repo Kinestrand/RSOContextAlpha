@@ -270,6 +270,19 @@ text. If expansion says stale or unavailable, reconcile the source and ingest
 again. A byte limit can produce `insufficient_budget`; a small result does not
 mean the source contains no answer.
 
+For `status: insufficient_budget` with `evidence: []`, take the returned
+`source_packet_hash` and call `rso_explain(packet_hash=<source_packet_hash>)`.
+The saved result is in its `packet` field and remains subject to launch-root
+filtering. This recovers the packet without another query. It may be larger
+than the compact response; use `rso_expand` for individual references when
+those are supplied. Read any disagreement or stale-source flags before using
+the evidence.
+
+Sub-agent tool access depends on the host. If a sub-agent has only file tools,
+its parent can run RSO and pass the relevant source spans, hashes, trust states,
+and unresolved questions in its prompt. That is parent-supplied evidence.
+Absence of MCP tools in the sub-agent is not evidence of an RSO outage.
+
 An installed server entry, successful tool discovery, and successful live tool
 calls are separate checks. If a running host has not loaded a new configuration,
 reconnect its MCP server or restart that host session. Meanwhile, an authorized
