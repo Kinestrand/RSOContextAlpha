@@ -12,6 +12,12 @@ It is RSO-inspired: keep the paper's production discipline, leave speculative ge
 
 Do not add embeddings, hyperbolic distance, learned axis controllers, Monte Carlo solvers, self-healing, or provider APIs unless a later measured test shows they earn their cost.
 
+## Next: network host (design)
+
+Multi-person use of one project on a LAN share, with a canonical ledger on an
+always-on host and remote query/MCP for other computers. Design only — see
+[NETWORK-HOST.md](NETWORK-HOST.md). Not scheduled as a release commitment yet.
+
 ## Current development home
 
 RSO development and release builds belong to the private `Kinestrand/RSOContextAlpha` repository. The installed Windows checkout remains `%USERPROFILE%\.local\RSOContextAlpha`. Other projects consume the CLI and are not build dependencies. See `DEVELOPMENT.md` for the build workflow.

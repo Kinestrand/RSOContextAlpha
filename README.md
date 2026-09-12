@@ -2,7 +2,7 @@
 
 [Download 0.8.0](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.8.0) ·
 [Quick-start](QUICKSTART.md) · [Installation](INSTALL.md) ·
-[Manual](MANUAL.md) · [Changes](CHANGELOG.md) · [Verification](VERIFICATION.md)
+[Manual](MANUAL.md) · [Network host design](NETWORK-HOST.md) · [Changes](CHANGELOG.md) · [Verification](VERIFICATION.md)
 
 **RSO means Recursive Semantic Octree**, from Paul Griswold's research paper. [Research origin](RESEARCH-ORIGIN.md) explains the graphics-inspired proposal and which parts this application implements.
 
