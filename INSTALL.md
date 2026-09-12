@@ -21,7 +21,7 @@ Extract the release ZIP before installing. The installer copies only files liste
 
 Python **3.11 or newer**, Git on PATH, and Python's standard-library SQLite with FTS5 are required. The installed Windows command launches Python directly. PowerShell is needed only for the optional `.ps1` launcher and PowerShell examples. The core program needs no pip packages, API key, model account, or network service. The installer checks Python and Git; `doctor` checks SQLite afterward.
 
-The POSIX launcher is supplied for Linux and macOS. Linux CLI + MCP runtime was verified on the Grok Bot Debian host (see VERIFICATION.md). Native macOS execution hasn't been tested for this release.
+The POSIX launcher is supplied for Linux and macOS. Linux CLI + MCP runtime was verified on Debian (see VERIFICATION.md). Native macOS execution hasn't been tested for this release.
 
 ## Windows
 
