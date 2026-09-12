@@ -60,6 +60,15 @@ rso-context query "<actual user task>" --agent <current-agent-name> --path <boun
 3. Treat `observed` claims as exact source statements. Treat them as verified facts only when the packet has a matching named validation record or the source itself is the named authority.
 4. Preserve conflicting evidence. Report `unknown`, `budget_exhausted`, or `disagreement`. Do not silently merge them. `disagreement` means ask the user; do not pick a winner.
 
+When a known function is hard to find from a plain question, check for a
+project-owned reference document before searching code again. An untracked
+document in a Git project is outside ingestion. Review and track that exact
+file within your authorized scope, run `use`, then test the actual question
+and inspect its returned spans. Write question headings, exact symbols, source
+paths, evidence requirements, and failure behavior; do not turn proposed
+features into documented facts. Keep these references in the project they
+describe. See the manual's function-discovery guidance.
+
 Do not register a user profile, `Documents`, `Downloads`, or an entire cloud root. Automatic discovery roots are only the current working directory and `$RSO_CONTEXT_ROOTS`. `rso-context watch --path <workspace> --once` polls one already-registered folder; roots stay bounded.
 
 ## MCP adapter

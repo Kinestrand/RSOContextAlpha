@@ -34,6 +34,27 @@ The optional `project-truth.html` interview runs in a browser and downloads a pr
 
 In Git projects, only tracked files are candidates. A new decision file must be tracked before ingestion sees it. Don't track secrets for the sake of indexing. In non-Git projects, supported files are discovered within the bounded root, subject to exclusions and size limits.
 
+### Make existing functions discoverable
+
+When agents know the question but not the function name, maintain one concise
+reference document inside that project. Use the actual question as a heading,
+then name the function, its source file, the value it returns, its evidence
+requirements, and its refusal or fallback behavior. Keep implemented behavior
+separate from proposed work. Prefer symbol names over line numbers that drift.
+
+Review the document against current source before treating it as a reference.
+In a Git project, confirm it is tracked with `git ls-files --error-unmatch
+docs/<reference-file>.md`. An untracked draft is outside ingestion even when
+`use` reports success. Track only the reviewed file, then run `use` and query
+the same plain-language questions. Inspect the returned source spans and
+freshness; a successful ingest alone does not prove useful retrieval.
+
+Keep project-specific function references in their owning project, outside
+RSO's own source repository. Each separate checkout needs the document and
+its own ingestion. RSO retrieves documentation; it does not expose the
+described application functions as new MCP tools or automatically brief every
+agent. A parent must pass the evidence to a sub-agent that cannot query RSO.
+
 ## 2. Start and resume work
 
 ```text
