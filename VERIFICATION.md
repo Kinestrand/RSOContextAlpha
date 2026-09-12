@@ -50,6 +50,14 @@ An allowed but unregistered bounded folder first returned the explicit unregiste
 
 These were live checks against existing local workspaces. They establish this installed Codex workflow, not universal host compatibility or completion of the planned disposable-project acceptance checks for every client.
 
+## Live Claude Code on Windows
+
+On 2026-09-12, an interactive Claude Code session called the installed local MCP server's `rso_use`, `rso_query`, `rso_resume`, `rso_explain`, and `rso_expand` tools against the RSOContextAlpha workspace itself, using launch roots configured in the host's own `.claude.json`.
+
+`rso_use` ingested the bounded folder (63 active sources, no changes) and returned a resume packet. `rso_query` asked what the optional MCP adapter's runtime version must be and what happens if it isn't installed; it returned a compact `rso-mcp-packet/v1` with evidence from INSTALL.md, QUICKSTART.md, DEVELOPMENT.md, README.md, and MANUAL.md. One of the query's two split requirements returned `status: disagreement`, exercising that path live rather than through a fixture. `rso_resume` returned the same project's current claims and run history. `rso_explain` retrieved the saved packet by its hash. `rso_expand` recovered the one span the byte budget had omitted (MANUAL.md's troubleshooting section), returning `status: ok`, `stale: false`, and a matching source hash.
+
+This establishes live Claude Code MCP acceptance on Windows against a real bounded workspace. It does not establish native macOS execution or a from-scratch disposable-project session for this host.
+
 ## Regression and packaging
 
 The September 10 documentation refresh passed all 78 regression tests on Windows. The suite includes scratch-ledger CLI/MCP checks, response budgets, project isolation, current-source handling, configuration preservation, installation, exact archive contents, documentation links, and identical protocol copies. GitHub's build workflow now labels its artifact as 0.8.0, matching the package version.
@@ -99,7 +107,7 @@ live Codex/Claude MCP sessions on Linux, nor native macOS execution.
 
 ## Remaining verification limits
 
-- Live Claude Code MCP use/query/expand remains unverified. Automated macOS runner coverage is recorded above; it does not establish live agent-host acceptance.
+- Live Claude Code MCP use/query/resume/explain/expand on Windows is recorded above. Native macOS live-agent acceptance remains unverified; the automated macOS runner coverage recorded above does not establish that.
 - Linux CLI + MCP runtime on Debian is recorded above; live agent MCP sessions on Linux are still separate.
 - SDK-driven scratch tests are separate from live host checks.
 - Secret filtering is a precaution, not proof that arbitrary confidential text can be safely published. The ledger contains searchable source text and metadata even when chunk bodies are pointers.

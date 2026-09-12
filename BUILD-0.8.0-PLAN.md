@@ -1,6 +1,6 @@
 # RSO 0.8.0 build plan
 
-Prepared September 9, 2026; status updated September 10. Days 1-7 and follow-up runtime, configuration-preservation, scope, and wire-budget fixes are implemented. Live Codex use/resume/query/explain/expand now pass on Windows against existing bounded workspaces. Claude Code and native macOS remain unverified; the full disposable-project host acceptance requirement below is not complete. See [VERIFICATION.md](VERIFICATION.md). Dated records below describe their original sessions; statements that nothing was pushed or no live host was tested are historical, not current status.
+Prepared September 9, 2026; status updated September 12. Days 1-7 and follow-up runtime, configuration-preservation, scope, and wire-budget fixes are implemented. Live Codex and Claude Code use/resume/query/explain/expand now pass on Windows against existing bounded workspaces (September 10 and September 12). Native macOS remains unverified; the full disposable-project host acceptance requirement below is not complete. See [VERIFICATION.md](VERIFICATION.md). Dated records below describe their original sessions; statements that nothing was pushed or no live host was tested are historical, not current status.
 
 ## Outcome and scope
 
