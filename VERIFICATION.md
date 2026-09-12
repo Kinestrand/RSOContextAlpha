@@ -1,6 +1,6 @@
 # RSO 0.8.0 verification status
 
-Updated September 11, 2026 (UTC). This record separates observed checks from untested environments. It contains no local project paths, source excerpts, account configuration, or ledger exports.
+Updated September 12, 2026 (UTC). This record separates observed checks from untested environments. It contains no local project paths, source excerpts, account configuration, or ledger exports.
 
 ## Live Codex on Windows
 
@@ -42,9 +42,25 @@ establish MCP compatibility in Claude Code or Antigravity, concurrent execution
 of every request, or completion of the RSO-on/off comparison. Codex authored the
 fixture and was not blinded. No performance advantage is claimed.
 
+
+## Live Linux install (Grok Bot computer)
+
+On 2026-09-12 the Debian Linux host used by Grok Bot (RSO Context Tool) installed
+0.8.0 with `python3 install.py --prefix ~/.local`, then verified:
+
+- `rso-context --version` reported `0.8.0`
+- `doctor` reported `ready: true` with FTS5 and SQLite quick-check ok
+- `PYTHONPATH=src python3 -B -m unittest discover -s tests -v` — **103** tests OK (2 skipped: Windows-only)
+- `rso-context mcp --install-runtime` produced an isolated Linux venv with `runtime_mcp_version` `2.2.0` and `runtime_ready: true`
+- Scratch bounded project: `register` / `ingest` / `query` returned `rso-context-packet/v2` with an observed claim from the synthetic plate
+
+This establishes CLI + MCP runtime readiness on that Linux host. It does not claim
+live Codex/Claude MCP sessions on Linux, nor native macOS execution.
+
 ## Remaining verification limits
 
 - Live Claude Code MCP use/query/expand and native macOS execution remain unverified.
+- Linux CLI + MCP runtime on the Grok Bot Debian host is recorded above; live agent MCP sessions on Linux are still separate.
 - SDK-driven scratch tests are separate from live host checks.
 - Secret filtering is a precaution, not proof that arbitrary confidential text can be safely published. The ledger contains searchable source text and metadata even when chunk bodies are pointers.
 - Repository publication and package creation do not include an index or synchronize users' project files. Source releases use the explicit allowlist in `RELEASE-FILES.txt` and retain LICENSE and NOTICE.
