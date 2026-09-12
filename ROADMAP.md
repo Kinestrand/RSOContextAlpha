@@ -27,7 +27,7 @@ The unique leftover from V4.1. The ledger already stores plates. This is the mat
 3. **Match Move matrix.** Audit schema `rso-match-move-audit/v2`: requirement↔evidence and output↔evidence indexes, residuals, `worst_residual` exposed for a later targeted query (not auto-requeried). Lexical mapping is a helper, not proof.
 4. **Partition tree in the packet.** Intent root, leaves, `stop_reason`, checkable flag. Not a 3D viewer.
 
-**Status:** shipped in 0.4.0 (checkable leaves, disagreement, partition, match-move matrix). Copy onto RYZEN when that host is next updated.
+**Status:** shipped in 0.4.0 (checkable leaves, disagreement, partition, match-move matrix).
 
 ## Slice B — Run mechanics
 
