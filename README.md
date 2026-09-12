@@ -85,7 +85,7 @@ The version should be `0.8.0`; `doctor` should report `ready: true`. The install
 prints the command path and does not change PATH. Follow the
 [quick-start demo](QUICKSTART.md) for a complete example using a disposable
 project and ledger. [INSTALL.md](INSTALL.md) covers Linux, macOS, and custom paths;
-native macOS execution remains unverified.
+automated macOS checks passed on the current branch (see VERIFICATION.md).
 
 The current branch also includes Linux path-isolation fixes, Git Bash launcher
 support, and Windows/Ubuntu/macOS CI checks. These changes are newer than the
@@ -130,7 +130,7 @@ Paul Griswold's evaluation, September 5, 2026: RSO has been tested with Graft in
 
 Development lives in the [Kinestrand/RSOContextAlpha](https://github.com/Kinestrand/RSOContextAlpha) repository. See [DEVELOPMENT.md](DEVELOPMENT.md) for checkout, testing, and release-build commands. RSO builds independently of the projects it indexes.
 
-This is an alpha. Windows checks are included in the release tests. Python 3.11 or newer, Git, and SQLite FTS5 support are required. The core CLI needs no third-party Python packages or provider account. The optional MCP adapter is the only shipped pip install, and `doctor` / `mcp --status` must report exactly `mcp==2.2.0` (`runtime_mcp_version` `2.2.0`) before that adapter is ready. Live Codex MCP use, resume, query, explain, and expansion were checked on Windows on September 10, 2026. Live Claude Code and native macOS execution remain unverified. See [verification status](VERIFICATION.md) for the scope of those checks.
+This is an alpha. Windows checks are included in the release tests. Python 3.11 or newer, Git, and SQLite FTS5 support are required. The core CLI needs no third-party Python packages or provider account. The optional MCP adapter is the only shipped pip install, and `doctor` / `mcp --status` must report exactly `mcp==2.2.0` (`runtime_mcp_version` `2.2.0`) before that adapter is ready. Live Codex MCP use, resume, query, explain, and expansion were checked on Windows on September 10, 2026. Automated Windows, Ubuntu, and macOS checks passed on the current branch. Live Claude Code MCP acceptance remains unverified. See [verification status](VERIFICATION.md) for the scope of those checks.
 
 The ZIP contains the program, installer, documentation, a project interview, and focused regression tests. It doesn't contain a personal index, credentials, agent configuration, or internal repair notes. Each recipient starts their own ledger. [RELEASE-FILES.txt](RELEASE-FILES.txt) is the explicit package allowlist.
 

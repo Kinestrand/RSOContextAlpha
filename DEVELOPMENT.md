@@ -56,7 +56,7 @@ The current version is 0.8.0. For a new version, update `src/rso_context/__init_
 
 The workflow runs the regression suite on Windows, Ubuntu, and macOS with Python 3.11 and 3.12. Each Python 3.11 job also builds a ZIP and saves it as a separate workflow artifact for seven days. The isolated MCP SDK installation must succeed before tests run. Artifact access follows GitHub repository permissions. The workflow can be started manually. It does not create a public release or publish a package.
 
-Native macOS execution remains unverified. Supplying a POSIX launcher does not establish macOS test coverage.
+Windows, Ubuntu, and macOS automated checks passed on Python 3.11 and 3.12 for commit feeaa68. See VERIFICATION.md for the Actions run and remaining live-host limits.
 
 ## Publish a versioned release
 

@@ -4,6 +4,12 @@ Updated September 12, 2026 (UTC). This record separates observed checks from unt
 
 ## Linux platform checks, September 12
 
+GitHub Actions [run 34718651864](https://github.com/Kinestrand/RSOContextAlpha/actions/runs/34718651864)
+passed all six jobs for commit `feeaa68`: Windows, Ubuntu, and macOS on
+Python 3.11 and 3.12. Each job installed the pinned MCP runtime and ran the
+regression suite; each Python 3.11 job also built and uploaded a ZIP artifact.
+This tests the current-branch changes, not a replacement published release.
+
 Codex's follow-up review ran the expanded 106-test suite successfully on
 Windows (one POSIX-only test skipped) and Ubuntu 24.04 under WSL (three
 Windows-only tests skipped). Ubuntu used a separate temporary MCP runtime.
@@ -93,7 +99,7 @@ live Codex/Claude MCP sessions on Linux, nor native macOS execution.
 
 ## Remaining verification limits
 
-- Live Claude Code MCP use/query/expand and native macOS execution remain unverified.
+- Live Claude Code MCP use/query/expand remains unverified. Automated macOS runner coverage is recorded above; it does not establish live agent-host acceptance.
 - Linux CLI + MCP runtime on Debian is recorded above; live agent MCP sessions on Linux are still separate.
 - SDK-driven scratch tests are separate from live host checks.
 - Secret filtering is a precaution, not proof that arbitrary confidential text can be safely published. The ledger contains searchable source text and metadata even when chunk bodies are pointers.

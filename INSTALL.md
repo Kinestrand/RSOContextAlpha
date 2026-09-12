@@ -22,7 +22,7 @@ Extract the release ZIP before installing. The installer copies only files liste
 
 Python **3.11 or newer**, Git on PATH, and Python's standard-library SQLite with FTS5 are required. The installed Windows command launches Python directly. PowerShell is needed only for the optional `.ps1` launcher and PowerShell examples. The core program needs no pip packages, API key, model account, or network service. The installer checks Python and Git; `doctor` checks SQLite afterward.
 
-The POSIX launcher is supplied for Linux and macOS. Linux CLI + MCP runtime was verified on Debian (see VERIFICATION.md). Native macOS execution hasn't been tested for this release.
+The POSIX launcher is supplied for Linux and macOS. Linux CLI + MCP runtime was verified on Debian (see VERIFICATION.md). Current-branch automated macOS checks also passed; see [VERIFICATION.md](VERIFICATION.md) for the tested commit and release boundary.
 
 ## Windows
 
@@ -152,7 +152,7 @@ Before using MCP, distinguish permission from registration: launch `--root` valu
 
 Repeat `--setup` replaces the RSO entry; it does not accumulate previously configured roots. Preserve the intended bounded roots when changing a launch configuration. Restart or reconnect the host's MCP server after changing launch arguments. Registering or ingesting an already-permitted folder needs no configuration change.
 
-Live Codex checks on Windows are recorded in [VERIFICATION.md](VERIFICATION.md). Claude Code and native macOS remain unverified.
+Live Codex checks on Windows are recorded in [VERIFICATION.md](VERIFICATION.md). Automated macOS checks passed on the current branch; live Claude Code MCP acceptance remains unverified.
 
 ## Agent adapter
 
