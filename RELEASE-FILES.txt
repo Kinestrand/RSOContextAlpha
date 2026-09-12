@@ -50,6 +50,7 @@ tests/test_cli_unicode.py
 tests/test_identity_stability.py
 tests/test_ingest_git_safety.py
 tests/test_install.py
+tests/test_platform_boundaries.py
 tests/test_query_freshness.py
 tests/test_release_files.py
 tests/test_release_fixtures.py

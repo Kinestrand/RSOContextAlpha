@@ -348,6 +348,10 @@ def source_path_filter(column: str, path: str | Path | None) -> tuple[str, list[
     """SQL clause limiting sources to a workspace path. Empty if path is None."""
     if path is None:
         return "", []
+    if os.name != "nt":
+        prefix = str(Path(path).expanduser().resolve()).rstrip("/") or "/"
+        return (f"({column} = ? COLLATE BINARY OR instr({column}, ?) = 1)",
+                [prefix, prefix.rstrip("/") + "/"])
     norms: list[str] = []
     seen: set[str] = set()
     for prefix in path_variants(path):

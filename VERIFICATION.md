@@ -2,6 +2,40 @@
 
 Updated September 12, 2026 (UTC). This record separates observed checks from untested environments. It contains no local project paths, source excerpts, account configuration, or ledger exports.
 
+## Linux platform checks, September 12
+
+Codex's follow-up review ran the expanded 106-test suite successfully on
+Windows (one POSIX-only test skipped) and Ubuntu 24.04 under WSL (three
+Windows-only tests skipped). Ubuntu used a separate temporary MCP runtime.
+The Git Bash launcher regression passed on Windows. A fresh release build
+passed its manifest and archive checks with 57 files. The earlier checks
+below describe the suite before the Git Bash regression was added.
+
+Ubuntu 24.04 under WSL, Python 3.12.3, passed 105 regression tests with two
+Windows-only tests skipped. The optional MCP runtime reported SDK 2.2.0.
+Checks included actual stdio handshakes, CLI/MCP shared-ledger behavior, bounded
+retrieval, installation, and case-sensitive root/source separation. A release
+ZIP was extracted and installed into a temporary Linux prefix containing spaces;
+doctor returned ready and scratch-ledger use/query returned the synthetic evidence.
+
+The platform changes preserve case-distinct POSIX roots and source filters,
+and reject installation into a virtual environment created by another OS.
+The first cross-OS test attempt touched the Windows runtime configuration;
+it was restored to its Python 3.12 runtime and all 14 MCP adapter tests then
+passed on Windows. A fresh process using the configured Windows command also
+completed tool discovery. Existing host processes need reconnecting after
+configuration changes.
+
+After runtime restoration, the complete Windows suite passed 105 tests with
+one POSIX-only case-sensitivity check skipped (CLI Python 3.11.11, MCP Python
+3.12.11). No personal ledger was used as test data.
+
+The workflow now includes Windows, Ubuntu, and macOS on Python 3.11 and 3.12,
+with MCP installation required before tests. Results from the published
+workflow are available in GitHub Actions. The separate Debian check is recorded
+below. These checks don't establish live Claude Code host acceptance or
+replace the published 0.8.0 release archive.
+
 ## Live Codex on Windows
 
 The active Codex host called the installed local MCP server's `rso_use`, `rso_resume`, `rso_query`, `rso_explain`, and `rso_expand` tools successfully.

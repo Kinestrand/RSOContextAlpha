@@ -68,6 +68,9 @@ def install(source: Path, prefix: Path, *, platform: str | None = None) -> dict:
     program = prefix / ("RSOContextAlpha" if windows else "share/RSOContextAlpha")
     command = prefix / "bin" / ("rso-context.cmd" if windows else "rso-context")
     destinations = [program / relative for relative in files] + [command]
+    bash_command = prefix / "bin" / "rso-context" if windows else None
+    if bash_command is not None:
+        destinations.append(bash_command)
     for target in destinations:
         if not target.resolve().is_relative_to(prefix.resolve()) or target.is_symlink():
             raise ValueError(f"Install destination escapes prefix or is a symlink: {target}")
@@ -100,6 +103,15 @@ def install(source: Path, prefix: Path, *, platform: str | None = None) -> dict:
     else:
         pointer = '#!/bin/sh\nexec /bin/sh ' + shlex.quote(str(program / "rso-context")) + ' "$@"\n'
     write(command, pointer.encode("utf-8"))
+    if bash_command is not None:
+        bash_pointer = (
+            '#!/bin/sh\n'
+            'PYTHONPATH=' + shlex.quote(str(program / "src")) + '"${PYTHONPATH:+;$PYTHONPATH}"\n'
+            'export PYTHONPATH\n'
+            'exec python -X utf8 -m rso_context "$@"\n'
+        )
+        write(bash_command, bash_pointer.encode("utf-8"))
+        bash_command.chmod(bash_command.stat().st_mode | 0o111)
     if not windows:
         command.chmod(command.stat().st_mode | 0o111)
         launcher = program / "rso-context"

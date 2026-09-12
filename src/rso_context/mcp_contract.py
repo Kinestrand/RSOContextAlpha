@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 
 from .scope import path_is_parent
 
@@ -116,7 +117,7 @@ def bind_roots(roots: list[str] | tuple[str, ...]) -> list[Path]:
     seen: set[str] = set()
     for root in roots:
         resolved = assert_bounded_root(root)
-        key = str(resolved).casefold()
+        key = os.path.normcase(str(resolved))
         if key in seen:
             continue
         seen.add(key)

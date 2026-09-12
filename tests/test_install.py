@@ -70,6 +70,20 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(first["command"], second["command"])
         self.assertEqual(second["backups"], [])
 
+    @unittest.skipUnless(os.name == "nt", "requires Windows Git Bash")
+    def test_git_bash_finds_extensionless_command(self):
+        bash = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/bash.exe"
+        if not bash.is_file():
+            self.skipTest("Git Bash is not installed")
+        installer.install(self.source, self.prefix)
+        script = 'export PATH="$(cygpath -u "$1"):$PATH"; rso-context --version'
+        completed = subprocess.run(
+            [str(bash), "--noprofile", "--norc", "-c", script, "rso-test", str(self.prefix / "bin")],
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("0.8.", completed.stdout)
+
     @unittest.skipUnless(os.name == "nt", "Windows execution policy regression")
     def test_windows_command_runs_under_restricted_policy(self):
         result = installer.install(self.source, self.prefix)

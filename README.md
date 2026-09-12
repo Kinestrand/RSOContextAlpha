@@ -6,6 +6,13 @@
 
 **RSO means Recursive Semantic Octree**, from Paul Griswold's research paper. [Research origin](RESEARCH-ORIGIN.md) explains the graphics-inspired proposal and which parts this application implements.
 
+The research idea borrows subdivision from 3D graphics: split a request into
+smaller tasks, check each part, assemble the answer, then check it backward
+against the original request. A failed check would direct further work to the
+part that needs repair. This application implements a local evidence-ledger
+subset of that proposal; it doesn't implement or validate the full research
+architecture.
+
 RSO Context is a local evidence ledger for agents working with project files. It gives different agents a shared way to retrieve current requirements, decisions, source references, and recorded approvals from the same bounded project folder.
 
 For example, a project file might say, "Decision: export the preview at 24 fps." RSO can return that sentence with its file path, line range, and content hash. If the file changes, the next ingest records a new version. If someone explicitly approves a claim, their named validation can travel with the evidence.
@@ -25,7 +32,7 @@ It covers downloading the ZIP, installing Python and Git, setting up RSO, and
 trying a complete example. It also includes a request you can paste into a local
 coding agent to have it perform setup.
 
-1. Read [INSTALL.md](INSTALL.md) for Windows or macOS setup. An agent asked to install RSO should perform the installation and checks itself.
+1. Read [INSTALL.md](INSTALL.md) for Windows, Linux, or macOS setup. An agent asked to install RSO should perform the installation and checks itself.
 2. Point it at one project folder, then ask a real question:
 
    ```text
@@ -77,8 +84,14 @@ python -B install.py
 The version should be `0.8.0`; `doctor` should report `ready: true`. The installer
 prints the command path and does not change PATH. Follow the
 [quick-start demo](QUICKSTART.md) for a complete example using a disposable
-project and ledger. [INSTALL.md](INSTALL.md) covers macOS and custom paths;
+project and ledger. [INSTALL.md](INSTALL.md) covers Linux, macOS, and custom paths;
 native macOS execution remains unverified.
+
+The current branch also includes Linux path-isolation fixes, Git Bash launcher
+support, and Windows/Ubuntu/macOS CI checks. These changes are newer than the
+published 0.8.0 ZIP. To try them, use the current branch source and follow
+[the Linux installation instructions](INSTALL.md#linux). See
+[VERIFICATION.md](VERIFICATION.md) for recorded Debian and Ubuntu checks.
 
 In a Git project, source files must be tracked before ingestion sees them.
 A new non-Git project needs a marker such as `AGENTS.md`. Select one bounded

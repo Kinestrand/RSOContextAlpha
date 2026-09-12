@@ -124,6 +124,14 @@ def install_runtime(directory: Path | None = None) -> dict[str, object]:
     if not req.is_file():
         raise FileNotFoundError(f"Missing {REQUIREMENTS_NAME} next to the program")
     root = directory or runtime_dir()
+    config = root / "pyvenv.cfg"
+    if config.is_file():
+        settings = dict((key.strip(), value.strip()) for key, value in
+                        (line.split("=", 1) for line in config.read_text(encoding="utf-8").splitlines() if "=" in line))
+        home = settings.get("home", "")
+        foreign = home.startswith("/") if os.name == "nt" else bool("\\" in home or (len(home) > 1 and home[1] == ":"))
+        if foreign:
+            raise RuntimeError("MCP runtime belongs to another operating system. Set RSO_MCP_RUNTIME to a separate directory.")
     root.parent.mkdir(parents=True, exist_ok=True)
     venv.EnvBuilder(with_pip=True, clear=False, upgrade=False).create(root)
     python = runtime_python(root)

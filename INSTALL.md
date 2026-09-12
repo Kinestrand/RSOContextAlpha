@@ -9,6 +9,7 @@ Extract the release ZIP before installing. The installer copies only files liste
 
 - [Requirements](#requirements)
 - [Windows](#windows)
+- [Linux](#linux)
 - [macOS](#macos)
 - [First project](#first-project)
 - [Custom installation and isolated checks](#custom-installation-and-isolated-checks)
@@ -43,6 +44,9 @@ If Python is available through `py`, use `py -3.11 -B install.py` or another ins
 | Command | `%USERPROFILE%\.local\bin\rso-context.cmd` |
 | Index | `%USERPROFILE%\.rso-context\context.sqlite3` |
 
+The Windows installation also includes an extensionless `rso-context` launcher
+for Git Bash. Both launchers use the same installed source and ledger defaults.
+
 The installer doesn't change PATH. For this PowerShell session:
 
 ```powershell
@@ -51,6 +55,29 @@ rso-context --version
 ```
 
 For later sessions, add `%USERPROFILE%\.local\bin` to the user PATH or use the full command path. An installing agent can add the entry when installation is authorized, preserving existing PATH entries. The version check must report 0.8.0.
+
+## Linux
+
+Use Python 3.11 or newer, Git, and SQLite FTS5. Ubuntu 24.04 supplies these
+through `python3` and `git`; the optional MCP adapter also needs `python3-venv`.
+From the extracted release folder:
+
+```sh
+python3 -B install.py
+export PATH="$HOME/.local/bin:$PATH"
+rso-context --version
+rso-context doctor
+```
+
+The program is installed in `~/.local/share/RSOContextAlpha`, the command in
+`~/.local/bin/rso-context`, and the index in
+`~/.local/share/rso-context-alpha/context.sqlite3`. For later Bash sessions,
+add the PATH export once to `~/.profile`. The installer doesn't edit profiles.
+
+Windows and Linux need separate MCP virtual environments, including when WSL
+accesses a Windows checkout. Set `RSO_MCP_RUNTIME` to a Linux-only directory
+before `rso-context mcp --install-runtime`; don't reuse a Windows venv.
+`RSO_CONTEXT_HOME` selects the ledger directory independently of the install.
 
 ## macOS
 
