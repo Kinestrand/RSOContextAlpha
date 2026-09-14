@@ -94,10 +94,19 @@ def install(source: Path, prefix: Path, *, platform: str | None = None) -> dict:
             write(target, original.read_bytes())
     if windows:
         source_path = str(program / "src").replace("%", "%%")
+        program_path = str(program).replace('%', '%%')
         pointer = (
             '@echo off\r\nsetlocal DisableDelayedExpansion\r\n'
+            'set "RSO_ROOT=' + program_path + '"\r\n'
             'set "PYTHONPATH=' + source_path + ';%PYTHONPATH%"\r\n'
-            'python -X utf8 -m rso_context %*\r\n'
+            'set "RSO_PY=python"\r\n'
+            'if /I "%~1"=="mcp" (\r\n'
+            '  if exist "%RSO_ROOT%\\mcp-runtime\\Scripts\\python.exe" (\r\n'
+            '    set "RSO_PY=%RSO_ROOT%\\mcp-runtime\\Scripts\\python.exe"\r\n'
+            '    set "RSO_MCP_IN_RUNTIME=1"\r\n'
+            '  )\r\n'
+            ')\r\n'
+            '"%RSO_PY%" -X utf8 -m rso_context %*\r\n'
             'exit /b %ERRORLEVEL%\r\n'
         )
     else:

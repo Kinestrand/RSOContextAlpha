@@ -445,7 +445,7 @@ def command_mcp(args: argparse.Namespace) -> int:
         from .mcp_setup import remove_client, setup_client
 
         if not args.client:
-            raise ValueError("mcp --setup/--remove requires --client codex or claude-code")
+            raise ValueError("mcp --setup/--remove requires --client codex, claude-code, gemini, or antigravity")
         if args.remove:
             _print(remove_client(args.client, config=args.config))
             return 0
@@ -680,7 +680,7 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_parser.add_argument(
         "--setup",
         action="store_true",
-        help="Write an RSO-owned MCP entry for --client (Codex or Claude Code)",
+        help="Write an RSO-owned MCP entry for --client (Codex, Claude Code, or Gemini/Antigravity)",
     )
     mcp_parser.add_argument(
         "--remove",
@@ -689,8 +689,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     mcp_parser.add_argument(
         "--client",
-        choices=("codex", "claude-code"),
-        help="Host to configure: Codex config.toml or Claude Code .claude.json",
+        choices=("codex", "claude-code", "gemini", "antigravity"),
+        help="Host to configure: Codex, Claude Code, or Gemini/Antigravity (~/.gemini/settings.json)",
     )
     mcp_parser.add_argument(
         "--config",
