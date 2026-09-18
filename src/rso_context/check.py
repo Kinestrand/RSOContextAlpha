@@ -58,7 +58,27 @@ _REPORT_CUE = re.compile(
     r"|propos(?:e|es|ed|al)|consider(?:ing)?|should\s+we|do\s+we|maybe|might\s+we)\b",
     re.IGNORECASE,
 )
-_CLAUSE_SPLIT = re.compile(r"\s*[,;:]\s*|\s+but\s+", re.IGNORECASE)
+# Verbs that record a choice. "use" counts; "used"/"using" do not, since
+# "we evaluated Arnold using the test scene" is not a decision.
+_DECISION_VERB = (
+    r"(?:chose|choose|chosen|picked|selected|decided|adopt(?:s|ed)?|went\s+with|settled\s+on"
+    r"|switch(?:ed)?\s+to|standardi[sz]ed?\s+on|will\s+use|use|uses)"
+)
+# Clauses split at punctuation, at "but", and just before a decision verb joined by
+# "and"/"then", so "we evaluated Arnold and chose Cycles" judges each half apart.
+_CLAUSE_SPLIT = re.compile(
+    r"\s*[,;:]\s*|\s+but\s+"
+    r"|\s+(?:and|then)\s+(?=(?:(?:we|they|the\s+team)\s+)?" + _DECISION_VERB + r"\b)",
+    re.IGNORECASE,
+)
+# Trying something out is not choosing it.
+_EXPLORATION_CUE = re.compile(
+    r"\b(?:evaluat(?:e|es|ed|ing|ion)|test(?:s|ed|ing)|tri(?:ed|al|als|aled|alled)|trying"
+    r"|compar(?:e|es|ed|ing)|benchmark(?:s|ed|ing)?|prototyp(?:e|ed|ing)|investigat(?:e|ed|ing)"
+    r"|explor(?:e|ed|ing)|look(?:ed|ing)\s+(?:at|into)|experiment(?:s|ed|ing)?|reviewed|assess(?:ed|ing)?)\b",
+    re.IGNORECASE,
+)
+_DECISION_CUE = re.compile(r"\b(?:decision|decided|must|shall|required?|" + _DECISION_VERB + r")\b", re.IGNORECASE)
 # Plain or comma-grouped numbers: 24, 4.2, 12,000.
 _NUM = r"-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
 _NUMBER = re.compile(r"(?<![\w.,])" + _NUM + r"(?!\d)")
@@ -293,13 +313,18 @@ def _is_reported(sentence: str) -> bool:
     return "?" in sentence or _REPORT_CUE.search(sentence) is not None
 
 
+def _exploratory(text: str) -> bool:
+    """Evaluating, testing or comparing something records an experiment, not a decision."""
+    return _EXPLORATION_CUE.search(text) is not None and _DECISION_CUE.search(text) is None
+
+
 def _unique_sentences(rows: list[dict]) -> list[tuple[dict, tuple[int, int], str]]:
     seen: set[tuple[str, int, str]] = set()
     result: list[tuple[dict, tuple[int, int], str]] = []
     for row in rows:
         for line_start, line_end, sentence in _sentences(row):
             key = (str(row.get("relative_path")), line_start, sentence)
-            if key in seen or _is_reported(sentence):
+            if key in seen or _is_reported(sentence) or _exploratory(sentence):
                 continue
             seen.add(key)
             result.append((row, (line_start, line_end), sentence))
@@ -376,6 +401,8 @@ def _evaluate_choice(question: dict, sentences: list[tuple[dict, int, str]]) -> 
             continue
         hits: dict[tuple[str, bool], str] = {}
         for clause in _CLAUSE_SPLIT.split(sentence):
+            if _exploratory(clause):
+                continue
             negated = _negated(clause)
             for option, phrase, pattern in phrases:
                 if pattern.search(clause):

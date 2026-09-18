@@ -150,6 +150,14 @@ class SentenceAssemblyTests(CheckTestCase):
         value = self.answer({"id": "v", "type": "value", "text": "preview export frame rate", "unit": "fps"})
         self.assertEqual(value["answer"], "unknown")
 
+    def test_experiments_are_not_evidence_for_claims_or_values(self):
+        self.write("spec.md", "# Spec\n\nWe tested exporting the preview at 30 fps.\n")
+        self.ingest()
+        claim = self.answer({"id": "fps", "type": "claim", "text": "Preview export is 30 fps"})
+        self.assertEqual(claim["answer"], "unknown")
+        value = self.answer({"id": "v", "type": "value", "text": "preview export frame rate", "unit": "fps"})
+        self.assertEqual(value["answer"], "unknown")
+
     def test_plain_not_is_negation_for_query_and_check_alike(self):
         from rso_context.query import texts_disagree
 
@@ -197,6 +205,25 @@ class ChoiceTests(CheckTestCase):
         result = self.answer(self.QUESTION)
         self.assertEqual((result["answer"], result["value"]), ("excluded", None))
         self.assertEqual(result["excluded"], ["Arnold"])
+
+    def test_evaluating_an_option_is_not_choosing_it(self):
+        self.write("spec.md", "We evaluated the Arnold renderer for finals last year.\n")
+        self.ingest()
+        result = self.answer(self.QUESTION)
+        self.assertEqual((result["answer"], result["value"]), ("unknown", None))
+
+    def test_evaluate_then_choose_credits_only_the_choice(self):
+        self.write("spec.md", "For finals we evaluated the Arnold renderer and chose Cycles.\n")
+        self.ingest()
+        result = self.answer(self.QUESTION)
+        self.assertEqual((result["answer"], result["value"]), ("selected", "Cycles"))
+
+    def test_decision_word_keeps_a_tested_option(self):
+        # Testing plus an explicit decision is still a decision.
+        self.write("spec.md", "After testing, we use Arnold to render finals.\n")
+        self.ingest()
+        result = self.answer(self.QUESTION)
+        self.assertEqual((result["answer"], result["value"]), ("selected", "Arnold"))
 
     def test_shared_alias_is_rejected(self):
         bad = dict(self.QUESTION, aliases={"Cycles": ["gpu"], "Eevee": ["GPU"]})

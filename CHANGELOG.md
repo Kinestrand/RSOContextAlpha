@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Evaluating, testing, comparing or trying something is no longer read as
+  choosing it. "We evaluated the Arnold renderer for finals" used to make
+  `rso_check` select Arnold; it now returns `unknown`. A clause with an explicit
+  decision word still counts, and a sentence is split just before a decision
+  verb, so "we evaluated Arnold and chose Cycles" selects Cycles. The same rule
+  keeps "we tested exporting at 30 fps" from supporting a claim or supplying a
+  value.
+
 ## 0.9.1
 
 ### Fixed
