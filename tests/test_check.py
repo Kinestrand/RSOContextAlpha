@@ -262,6 +262,41 @@ class ContractTests(CheckTestCase):
             explain_packet(self.database, result["check_hash"], [outside.resolve()])
 
 
+class RootIsolationTests(unittest.TestCase):
+    def test_out_of_root_projects_do_not_surface_in_check_or_explain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            visible = base / "visible"
+            shared = base / "hidden-shared-rules"
+            visible.mkdir()
+            shared.mkdir()
+            (visible / "AGENTS.md").write_text("Decision: export the preview at 24 fps.\n", encoding="utf-8")
+            (shared / "AGENTS.md").write_text("Decision: export the preview at 30 fps.\n", encoding="utf-8")
+            database = Database(base / "context.sqlite3")
+            ingest_project(database, shared, agent="scope-test", scope="shared")
+            ingest_project(database, visible, agent="scope-test")
+            question = {"id": "fps", "type": "claim", "text": "Preview export is 24 fps"}
+            unbounded = check_questions(database, [question], path=visible, agent="scope-test")
+            shared_id = next(
+                item["id"] for item in unbounded["search_order"] if item["scope"] == "shared"
+            )
+            self.assertEqual(unbounded["answers"][0]["answer"], "disagreement")
+
+            bounded = check_questions(
+                database, [question], path=visible, agent="scope-test", roots=[visible.resolve()]
+            )
+            dumped = json.dumps(bounded)
+            self.assertEqual(bounded["answers"][0]["answer"], "supported")
+            self.assertNotIn(shared_id, dumped)
+            self.assertNotIn("hidden-shared-rules", dumped)
+            self.assertTrue(all(item["scope"] != "shared" for item in bounded["search_order"]))
+
+            explained = explain_packet(database, unbounded["check_hash"], [visible.resolve()])
+            self.assertNotIn(shared_id, json.dumps(explained["packet"]))
+            self.assertEqual(explained["packet"]["answers"][0]["counter_evidence"], [])
+            self.assertTrue(explained["packet"]["answers"][0]["restricted"])
+
+
 class BudgetTests(CheckTestCase):
     def test_budget_keeps_witness_then_reports_insufficient(self):
         self.write("a.md", "".join(f"Decision: export the preview at 24 fps for reel {n}.\n" for n in range(6)))

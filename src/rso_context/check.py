@@ -432,6 +432,14 @@ def _attach_validations(connection, project_ids: list[str], answer: dict) -> Non
 # ---------------------------------------------------------------- main entry
 
 
+def _visible_project_ids(connection, roots: list[Path]) -> set[str]:
+    """Projects with at least one alias path under a launch root (same rule as MCP query)."""
+    rows = connection.execute(
+        "SELECT project_id, resolved_path FROM project_aliases WHERE resolved_path IS NOT NULL"
+    ).fetchall()
+    return {str(row["project_id"]) for row in rows if alias_is_visible(row["resolved_path"], roots)}
+
+
 def check_questions(
     database: Database,
     questions: object,
@@ -461,6 +469,12 @@ def check_questions(
         order = [{"id": item["id"], "scope": item["scope"], "name": item["name"]} for item in scoped["order"]]
         shared_ids = [str(item["id"]) for item in order[1:]]
         scoped_ids = [project_id_value, *shared_ids]
+        corpus_versions = dict(scoped["corpus_versions"])
+        if roots is not None:
+            # Out-of-root projects must not surface by name or id, only be skipped.
+            visible = _visible_project_ids(connection, roots)
+            order = [item for item in order if str(item["id"]) in visible]
+            corpus_versions = {key: value for key, value in corpus_versions.items() if str(key) in visible}
         plate_cache = PlateCache()
         for question in normalized:
             rows: list[dict] = []
@@ -493,7 +507,7 @@ def check_questions(
         "schema": CHECK_SCHEMA,
         "project": {"id": project_id_value, "name": project["display_name"], "scope": project["scope"]},
         "search_order": order,
-        "corpus_versions": dict(scoped["corpus_versions"]),
+        "corpus_versions": corpus_versions,
         "questions": normalized,
         "answers": answers,
     }
@@ -607,6 +621,13 @@ def fit_check(full: dict[str, object], byte_budget: int = Limits.compact_byte_bu
 def explain_check(connection, packet: dict[str, object], visible_project_ids: set[str] | None = None) -> dict:
     """Mark evidence whose source changed since the check, and drop evidence outside visible projects."""
     result = copy.deepcopy(packet)
+    if visible_project_ids is not None:
+        result["search_order"] = [
+            item for item in result.get("search_order") or [] if str(item.get("id")) in visible_project_ids
+        ]
+        result["corpus_versions"] = {
+            key: value for key, value in (result.get("corpus_versions") or {}).items() if key in visible_project_ids
+        }
     stale_count = 0
     for answer in result.get("answers") or []:
         for key in ("evidence", "counter_evidence"):
