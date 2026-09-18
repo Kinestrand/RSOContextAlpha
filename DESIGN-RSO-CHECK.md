@@ -83,7 +83,9 @@ as a value ("24", "24.0" and "24 fps" match; "30 fps" does not). A same-topic
 sentence with a different number is returned under `counter_evidence` with
 `reason: number_mismatch` and makes the answer `contradicted` when nothing
 states the claimed number. Without this rule, "export at 30 fps" would support
-"export at 24 fps", since both share the topic words. Same-path support and
+"export at 24 fps", since both share the topic words.
+
+Same-path support and
 opposition is reported as `disagreement` too, but flagged `same_path: true`,
 because one file contradicting itself is a different repair from two files
 disagreeing.
@@ -101,7 +103,9 @@ a literal phrase, case-insensitive, on word boundaries. `aliases` is optional
 and maps an option to at most 8 extra phrases. A match on an alias counts for
 its option, `value` is always the option name, and each evidence item records
 `matched` (the phrase that hit) so the caller can see when an alias did the
-work. Two options may not share an alias; the request is rejected if they do. An option counts as supported when it
+work. Two options may not share an alias; the request is rejected if they do.
+
+An option counts as supported when it
 appears in a live sentence that shares topic words with `text`. An option in
 a negated sentence ("do not use Arnold") counts against it.
 
