@@ -1,5 +1,26 @@
 # RSO verification status
 
+## 0.9.1, September 18
+
+Release checks for 0.9.1 on Windows 11 with Python 3.12.5: 141 regression
+tests passed with one POSIX-only test skipped, including new tests for a
+sentence wrapped across two lines, list items that must stay separate,
+recorded questions that must not count as evidence, and the conflict
+detector and `rso_check` agreeing on a plain "not". GitHub Actions runs the
+suite on Windows, Ubuntu, and macOS with Python 3.11 and 3.12 for the
+release commit.
+
+Widening the conflict detector's negation rule was measured before release:
+across 15 queries over this repository's documentation it changed no query
+result. A twelve-question check over this repository went from a median of
+163 ms to 138 ms over five runs with identical answers. Both are single
+measurements on one corpus and one machine.
+
+The accuracy problems were found by using Jev (TypeSafe System One) as an
+advisory static reviewer over the source, then confirming each answer by
+running the code. Two of its 30 audit answers were wrong; nothing was changed
+on its word alone.
+
 ## 0.9.0, September 18
 
 Release checks for 0.9.0 on Windows 11 with Python 3.12.5: 137 regression

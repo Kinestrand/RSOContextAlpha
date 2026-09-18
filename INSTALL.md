@@ -1,4 +1,4 @@
-# Install RSO Context Alpha 0.9.0
+# Install RSO Context Alpha 0.9.1
 
 For step-by-step Windows download instructions and a first-use example, start
 with [QUICKSTART.md](QUICKSTART.md).
@@ -54,7 +54,7 @@ $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
 rso-context --version
 ```
 
-For later sessions, add `%USERPROFILE%\.local\bin` to the user PATH or use the full command path. An installing agent can add the entry when installation is authorized, preserving existing PATH entries. The version check must report 0.9.0.
+For later sessions, add `%USERPROFILE%\.local\bin` to the user PATH or use the full command path. An installing agent can add the entry when installation is authorized, preserving existing PATH entries. The version check must report 0.9.1.
 
 ## Linux
 
@@ -162,10 +162,10 @@ Register `SKILL.md` from the installed package when the client supports a skill 
 
 ## Upgrade and removal
 
-Use the package attached to the [0.9.0 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.0).
+Use the package attached to the [0.9.1 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.1).
 The release ZIP, source branch, and installed program are distinct: downloading
 new source does not upgrade the installed command. Confirm the installed command
-reports `0.9.0` after running the installer. See [CHANGELOG.md](CHANGELOG.md) for
+reports `0.9.1` after running the installer. See [CHANGELOG.md](CHANGELOG.md) for
 the changes from 0.7.0.
 
 Run the new release's installer with the same prefix. Differing package files are backed up beside their targets with `.rso-backup-<id>` suffixes before replacement. Identical files are skipped; unrelated files are preserved. Keep backups until the upgraded program has been checked. Program upgrades don't copy or delete the index. After a schema 4 to 5 upgrade, run `rso-context compact-pointers` once.

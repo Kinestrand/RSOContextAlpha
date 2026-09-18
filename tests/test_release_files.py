@@ -52,11 +52,11 @@ class ReleaseTests(unittest.TestCase):
             other = build_release.build(ROOT, second)
             self.assertEqual(result["sha256"], other["sha256"])
             with zipfile.ZipFile(first) as archive:
-                expected = {"RSOContextAlpha-0.9.0/" + p.as_posix() for p in release_files(ROOT)}
+                expected = {"RSOContextAlpha-0.9.1/" + p.as_posix() for p in release_files(ROOT)}
                 self.assertEqual(set(archive.namelist()), expected)
                 self.assertIsNone(archive.testzip())
                 for p in release_files(ROOT):
-                    self.assertEqual(archive.read("RSOContextAlpha-0.9.0/" + p.as_posix()),
+                    self.assertEqual(archive.read("RSOContextAlpha-0.9.1/" + p.as_posix()),
                                      (ROOT / p).read_bytes())
             with self.assertRaises(FileExistsError):
                 build_release.build(ROOT, first)
