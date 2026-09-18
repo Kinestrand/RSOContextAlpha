@@ -4,6 +4,8 @@
 
 The September 9 planning pass is in [BUILD-0.8.0-PLAN.md](BUILD-0.8.0-PLAN.md). The 0.8.0 MCP adapter, bounded packets, client setup, and follow-up compatibility fixes are implemented. Live Codex use/resume/query/explain/expand were checked on Windows on September 10; current-branch Windows, Ubuntu, and macOS automated checks passed on September 12; VERIFICATION.md records live Claude Code MCP use on Windows on September 12. That dated check does not establish current acceptance on every host. [VERIFICATION.md](VERIFICATION.md) records the exact scope. The original 30-42-hour schedule is historical planning, not a current commitment or background automation. Repository visibility stays private.
 
+Proposed next: [DESIGN-RSO-CHECK.md](DESIGN-RSO-CHECK.md) describes `rso_check`, typed claim/choice/value questions answered from ledger evidence without probabilities. It is not scheduled.
+
 The sections below preserve the earlier 0.4-0.7 roadmap and historical estimates.
 
 This is the build list after reading V4.1 (Google Doc) against the live alpha.
