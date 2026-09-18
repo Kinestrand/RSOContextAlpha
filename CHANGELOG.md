@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Disagreement detection compares sentences, not whole chunks. A negated
+  sentence conflicts with an affirmative one only when both share at least two
+  topic words and the two spans come from different paths. Before this, any
+  "do not" in one file and any "must" or "required" in another flagged a
+  conflict, which was common in documentation-heavy projects.
+- When a conflict set exceeds the compact byte budget, the packet keeps the
+  smallest two-sided pair that still shows the conflict and lists the rest as
+  `conflict_set` expand refs. It no longer returns an empty packet.
+- Budget fallbacks keep omitted expand refs before dropping them, and a packet
+  whose conflict evidence cannot fit reports `insufficient_budget` instead of
+  `ok` with no evidence.
+
 ## 0.8.0
 
 ### Added

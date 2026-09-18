@@ -10,7 +10,7 @@ from .config import Limits
 from .db import Database
 from .mcp_contract import alias_is_visible
 from .pointers import PlateCache, file_matches_hash
-from .query import _text_has_affirmative, _text_has_negation
+from .query import _text_has_affirmative, _text_has_negation, texts_disagree
 
 
 COMPACT_SCHEMA = "rso-mcp-packet/v1"
@@ -191,7 +191,26 @@ def _drop_evidence(compact: dict[str, object], reason: str) -> None:
     compact["omitted_count"] = len(compact["omitted"])
 
 
+def _slim_metadata(compact: dict[str, object]) -> None:
+    compact["claims"] = [
+        {"id": claim.get("id"), "trust_state": claim.get("trust_state")}
+        for claim in compact.get("claims") or []
+    ]
+    compact["requirements"] = [
+        {
+            "index": item.get("index"),
+            "status": item.get("status"),
+            "stop_reason": item.get("stop_reason"),
+        }
+        for item in compact.get("requirements") or []
+    ]
+
+
 def _minimal_provenance(compact: dict[str, object]) -> None:
+    omitted = list(compact.get("omitted") or [])
+    omitted.extend(
+        {"reason": "byte_budget", "expand": item.get("expand")} for item in compact.get("evidence") or []
+    )
     compact["evidence"] = []
     compact["claims"] = [
         {"id": claim.get("id"), "trust_state": claim.get("trust_state")}
@@ -207,9 +226,10 @@ def _minimal_provenance(compact: dict[str, object]) -> None:
     ]
     compact["validations"] = []
     compact["checks"] = []
-    compact["omitted"] = []
+    compact["omitted"] = omitted
+    compact["omitted_count"] = len(omitted)
     compact["status"] = "insufficient_budget"
-    compact["message"] = "Required conflict/provenance information cannot fit."
+    compact["message"] = "Required conflict/provenance information cannot fit; use omitted expand refs."
 
 
 def _force_under_budget(compact: dict[str, object], budget: int) -> None:
@@ -265,9 +285,17 @@ def _finalize(compact: dict[str, object], budget: int, *, protect_conflict: bool
             _drop_evidence(compact, "byte_budget")
             _stamp_size(compact)
             continue
+        _slim_metadata(compact)
+        _stamp_size(compact)
+        if serialized_bytes(compact) <= budget:
+            break
         _minimal_provenance(compact)
         _stamp_size(compact)
         break
+    while serialized_bytes(compact) > budget and compact.get("omitted"):
+        # Keep omitted_count honest; drop the least relevant refs last-first.
+        compact["omitted"].pop()
+        _stamp_size(compact)
     if serialized_bytes(compact) > budget:
         compact["claims"] = []
         compact["search_order"] = []
@@ -276,6 +304,23 @@ def _finalize(compact: dict[str, object], budget: int, *, protect_conflict: bool
     if serialized_bytes(compact) > budget:
         _force_under_budget(compact, budget)
     return compact
+
+
+def _conflict_witness(conflict: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Smallest pair of excerpts from different paths that still shows both sides of the conflict."""
+    best: list[dict[str, object]] = []
+    best_size = 0
+    for index, left in enumerate(conflict):
+        for right in conflict[index + 1 :]:
+            if left.get("relative_path") == right.get("relative_path"):
+                continue
+            texts = [str(left.get("text") or ""), str(right.get("text") or "")]
+            if not texts_disagree(texts):
+                continue
+            size = serialized_bytes(left) + serialized_bytes(right)
+            if not best or size < best_size:
+                best, best_size = [left, right], size
+    return best
 
 
 def compact_packet(
@@ -304,9 +349,19 @@ def compact_packet(
     if conflict:
         compact["evidence"] = list(conflict)
         if not _fits(compact, budget):
-            compact["omitted"] = [{"reason": "conflict_set", "expand": item.get("expand")} for item in conflict]
-            compact["omitted_count"] = len(conflict)
-            return _finalize(compact, budget, protect_conflict=True)
+            witness = _conflict_witness(conflict)
+            rest = [item for item in conflict if not any(item is kept for kept in witness)]
+            compact["evidence"] = witness
+            compact["omitted"] = [{"reason": "conflict_set", "expand": item.get("expand")} for item in rest]
+            compact["omitted_count"] = len(rest)
+            if not witness or not _fits(compact, budget):
+                compact["evidence"] = []
+                compact["omitted"] = [{"reason": "conflict_set", "expand": item.get("expand")} for item in conflict]
+                compact["omitted_count"] = len(conflict)
+                compact["status"] = "insufficient_budget"
+                compact["message"] = "Conflicting evidence cannot fit; use omitted expand refs."
+                return _finalize(compact, budget, protect_conflict=True)
+            conflict = witness
 
     kept = list(compact["evidence"])
     omitted: list[dict[str, object]] = list(compact.get("omitted") or [])

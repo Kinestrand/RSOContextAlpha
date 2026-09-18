@@ -92,6 +92,48 @@ class CompactPacketTests(unittest.TestCase):
         self.assertLessEqual(squeezed["byte_count"], squeezed["byte_budget"])
         self.assertEqual(squeezed["byte_count"], serialized_bytes(squeezed))
 
+    def test_unrelated_negation_and_requirement_are_not_a_disagreement(self):
+        self._ingest("rules.md", "Do not commit secrets to widgets config.\n")
+        self._ingest("spec.md", "Decision: widgets must be blue.\n")
+        packet = query_context(self.database, "widgets", path=self.root, agent="a")
+        self.assertEqual(packet["requirements"][0]["status"], "evidence_found")
+        self.assertFalse(packet["clarification_needed"])
+
+    def _large_conflict_packet(self):
+        self._ingest("must.md", "Decision: widgets must be blue.\n" + "widgets must be blue again.\n" * 60)
+        self._ingest("not.md", "Do not paint widgets blue.\n" + "do not paint widgets blue again.\n" * 60)
+        packet = query_context(self.database, "widgets", path=self.root, agent="a")
+        self.assertEqual(packet["requirements"][0]["status"], "disagreement")
+        return packet
+
+    def test_oversized_conflict_set_keeps_a_two_sided_witness(self):
+        packet = self._large_conflict_packet()
+        budget = 6000
+        self.assertGreater(compact_packet(packet, byte_budget=200_000)["byte_count"], budget)
+        compact = compact_packet(packet, byte_budget=budget)
+        self.assertLessEqual(compact["byte_count"], budget)
+        self.assertEqual(compact["status"], "ok")
+        self.assertTrue(compact["clarification_needed"])
+        self.assertEqual({item["relative_path"] for item in compact["evidence"]}, {"must.md", "not.md"})
+        texts = " ".join(item["text"] for item in compact["evidence"]).casefold()
+        self.assertIn("do not", texts)
+        self.assertIn("must be blue", texts)
+        self.assertTrue(compact["omitted"])
+        self.assertEqual(compact["omitted_count"], len(compact["omitted"]))
+        self.assertTrue(all(item["reason"] == "conflict_set" for item in compact["omitted"]))
+
+    def test_unfit_conflict_reports_insufficient_budget_with_expand_refs(self):
+        packet = self._large_conflict_packet()
+        for budget in (1800, 3000):
+            compact = compact_packet(packet, byte_budget=budget)
+            self.assertLessEqual(compact["byte_count"], compact["byte_budget"])
+            self.assertEqual(compact["status"], "insufficient_budget")
+            self.assertFalse(compact["evidence"])
+            self.assertTrue(compact["omitted"])
+            self.assertTrue(
+                all(item.get("expand", {}).get("schema") == "rso-expand-ref/v1" for item in compact["omitted"])
+            )
+
     def test_byte_budget_is_respected_and_omits_with_expand_refs(self):
         body = "Decision: widgets must stay blue.\n" + ("widgets extra line\n" * 80)
         self._ingest("policy.md", body)
