@@ -62,9 +62,13 @@ MCP permissions and searchable context are separate. A launch `--root` permits a
 
 - Fewer false conflicts. A "do not" in one file and a "must" in another now
   count as a disagreement only when both sentences are about the same thing.
+  Before and after were compared on two queries against this repository's own
+  documentation; real conflicts that share only one topic word are now missed.
 - Compact packets that hit a conflict keep a two-sided pair of spans, or at
   least the expand refs, instead of returning nothing.
 - MCP setup for Gemini CLI and Antigravity, each with its own config file.
+  Checked by isolated configuration tests only; no live session with either
+  host has been recorded.
 - Windows launchers honor `RSO_MCP_RUNTIME`.
 - Linux path-isolation fixes and the Git Bash launcher, which were on the
   development branch after 0.8.0, are now in the release ZIP.

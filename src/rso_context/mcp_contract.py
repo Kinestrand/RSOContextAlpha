@@ -46,6 +46,17 @@ TOOLS = (
         ),
     },
     {
+        "name": "rso_check",
+        "writes": True,
+        "required": ("questions", "path", "agent"),
+        "description": (
+            "Answer 1-12 typed questions (claim, choice, value) from live ledger evidence "
+            "and return rso-check/v1 with the spans behind each answer. No probabilities; "
+            "a supported answer is not verification. Writes a run record and consumes one "
+            "run-budget unit per call. path must stay under a launch --root."
+        ),
+    },
+    {
         "name": "rso_resume",
         "writes": False,
         "required": ("path", "agent"),

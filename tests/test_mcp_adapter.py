@@ -59,7 +59,7 @@ class McpContractTests(unittest.TestCase):
     def test_tool_contract_names(self):
         self.assertEqual(
             tool_names(),
-            ("rso_use", "rso_query", "rso_resume", "rso_explain", "rso_expand"),
+            ("rso_use", "rso_query", "rso_check", "rso_resume", "rso_explain", "rso_expand"),
         )
         self.assertEqual(TOOL_NAMES, tool_names())
 

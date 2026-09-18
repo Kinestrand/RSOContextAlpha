@@ -249,7 +249,8 @@ and `--agent` values in repeatable agent workflows.
 | `ingest` | Refresh one folder with `--path`; `--all` refreshes registered projects |
 | `resume` | Read current project summary without ingestion; `--path`, `--agent` |
 | `query` | Retrieve evidence for a positional question; `--path`, `--agent`, `--limit`, `--token-budget`, `--no-cache` |
-| `explain` | Read a saved packet by positional packet hash |
+| `check` | Answer typed claim/choice/value questions; `--questions <file or ->`, `--path`, `--agent`, optional `--byte-budget` |
+| `explain` | Read a saved packet or check by positional hash |
 | `explain-project` | Explain project matching for `--path` |
 | `propose` | File a positional suggestion; `--agent`, `--path` |
 | `pending` | List claims awaiting named validation; optional `--path` |
@@ -270,6 +271,34 @@ For a single project, `use` is the normal entry point. Do not use broad discover
 roots as a workaround for a missing project. CLI `query --compact --byte-budget
 <bytes>` requests the compact format; it does not change the database or ingest.
 
+### Typed checks
+
+`check` (MCP `rso_check`) answers narrow questions whose answer shape is known
+in advance. Each question has an `id`, a `type`, and `text`:
+
+```json
+[
+  {"id": "fps", "type": "claim", "text": "Preview export is 24 fps"},
+  {"id": "renderer", "type": "choice", "text": "Which renderer do we use for finals?",
+   "options": ["Cycles", "Eevee"], "aliases": {"Cycles": ["path tracer"]}},
+  {"id": "rate", "type": "value", "text": "preview export frame rate", "unit": "fps"}
+]
+```
+
+A `claim` answers `supported`, `contradicted`, `disagreement`, or `unknown`;
+numbers in the claim must match the source. A `choice` answers `selected`,
+`excluded`, `disagreement`, or `unknown` and never breaks a tie by rank. A
+`value` answers `found`, `disagreement`, or `unknown`, using a `unit` or a
+`pattern` with one capture group. Every answer carries the source sentences
+behind it and expand references.
+
+The result is `rso-check/v1`. It has no probability or confidence field; the
+answers come from lexical rules over current source text, and `supported` is
+not verification. A check never changes trust state. One call with up to 12
+questions uses one unit of run budget. `explain <check_hash>` returns the saved
+check and marks evidence whose source changed since. See
+[DESIGN-RSO-CHECK.md](DESIGN-RSO-CHECK.md) for the rules.
+
 ## 11. MCP tool reference
 
 Configure MCP only after the CLI works. See
@@ -282,7 +311,8 @@ select another database. Use a separate launch with a scratch database for tests
 | `rso_use` | Register and ingest a permitted project, then return its summary |
 | `rso_resume` | Read a permitted registered project's summary without ingestion |
 | `rso_query` | Return a compact packet for the actual task within a byte budget |
-| `rso_explain` | Read a saved packet subject to launch-root filtering |
+| `rso_check` | Answer 1-12 typed questions from evidence within a byte budget |
+| `rso_explain` | Read a saved packet or check subject to launch-root filtering |
 | `rso_expand` | Recover omitted source spans using returned expansion references |
 
 Use the tool schema advertised by the connected server for exact arguments.

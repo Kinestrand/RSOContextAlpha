@@ -6,7 +6,7 @@ The September 9 planning pass is in [BUILD-0.8.0-PLAN.md](BUILD-0.8.0-PLAN.md). 
 
 0.8.1 (September 18) fixes false disagreements and empty compact packets, adds Gemini CLI and Antigravity MCP setup, and packages the post-0.8.0 Linux and launcher fixes. See CHANGELOG.md.
 
-Proposed next: [DESIGN-RSO-CHECK.md](DESIGN-RSO-CHECK.md) describes `rso_check`, typed claim/choice/value questions answered from ledger evidence without probabilities. It is not scheduled.
+Next release: `rso_check` (CLI `check`), typed claim/choice/value questions answered from ledger evidence without probabilities, is implemented on `main` and not yet in a release ZIP. [DESIGN-RSO-CHECK.md](DESIGN-RSO-CHECK.md) has the rules and the v1 implementation notes.
 
 The sections below preserve the earlier 0.4-0.7 roadmap and historical estimates.
 

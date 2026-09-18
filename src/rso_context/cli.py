@@ -26,6 +26,7 @@ from .identity import project_explanation, register_project, resolve_existing_pr
 from .admin import serve_admin
 from .ingest import ingest_project
 from .pointers import compact_pointers
+from .check import CHECK_SCHEMA, check_questions, explain_check, fit_check
 from .compact import compact_packet
 from .query import query_context
 from .resume import resume_context
@@ -381,6 +382,29 @@ def command_explain(args: argparse.Namespace) -> int:
     result = dict(row)
     result["config"] = json.loads(result.pop("config_json"))
     result["packet"] = json.loads(result.pop("packet_json"))
+    if result["packet"].get("schema") == CHECK_SCHEMA:
+        with database.connect() as connection:
+            result["packet"] = explain_check(connection, result["packet"])
+    _print(result)
+    return 0
+
+
+def command_check(args: argparse.Namespace) -> int:
+    database = _database(args)
+    if args.questions == "-":
+        raw = sys.stdin.read()
+    else:
+        raw = Path(args.questions).read_text(encoding="utf-8")
+    result = check_questions(
+        database,
+        raw,
+        path=args.path,
+        project_id=args.project_id,
+        agent=args.agent,
+        limit=args.limit,
+    )
+    if args.byte_budget is not None:
+        result = fit_check(result, args.byte_budget)
     _print(result)
     return 0
 
@@ -632,7 +656,23 @@ def build_parser() -> argparse.ArgumentParser:
     audit_parser.add_argument("--token-budget", type=int, default=Limits.query_token_budget)
     audit_parser.set_defaults(function=command_audit)
 
-    packet_parser = subparsers.add_parser("explain", help="Explain a saved context packet")
+    check_parser = subparsers.add_parser(
+        "check", help="Answer typed claim/choice/value questions from ledger evidence (rso-check/v1)"
+    )
+    check_parser.add_argument("--questions", required=True, help="JSON file of questions, or - for stdin")
+    check_parser.add_argument("--path")
+    check_parser.add_argument("--project-id")
+    check_parser.add_argument("--agent", default="unknown")
+    check_parser.add_argument("--limit", type=int, default=Limits.query_limit)
+    check_parser.add_argument(
+        "--byte-budget",
+        type=int,
+        dest="byte_budget",
+        help="Trim the result to this many ASCII JSON bytes (default: untrimmed)",
+    )
+    check_parser.set_defaults(function=command_check)
+
+    packet_parser = subparsers.add_parser("explain", help="Explain a saved context packet or check")
     packet_parser.add_argument("packet_hash")
     packet_parser.set_defaults(function=command_explain)
 
