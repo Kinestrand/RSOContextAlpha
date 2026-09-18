@@ -21,8 +21,11 @@ spans, so the agent (or a person) can check it.
 
 ## Non-goals
 
-- No model, embeddings, or provider API. Retrieval stays SQLite FTS5 and the
-  lexical rules already in `query.py`.
+- No model, embeddings, or provider API, now or in a later version. Retrieval
+  stays SQLite FTS5 and the lexical rules already in `query.py`. The roadmap
+  lists fine-tuning, trained routers and learned estimators as out of scope,
+  and no model output may decide what a check returns (see "Models stay
+  downstream").
 - No probabilities or confidence scores. The roadmap rules out confidence
   thresholds, and a lexical match count dressed up as a probability would
   invite exactly the `if p >= 0.98: act()` pattern we want to avoid.
@@ -253,21 +256,31 @@ Recorded 2026-09-17 by Paul Griswold:
 2. Where should `rso-check/v1` answers appear in the admin viewer? Undecided.
    Not needed for v1; checks are reachable through `rso_explain`.
 
-## Later: an optional judge
+## Models stay downstream
 
 The weakest step in every rule above is the same: deciding whether two
 sentences are about the same thing and whether they agree. PR #3 does that
 with topic-word overlap, which misses conflicts phrased with different words.
-A small local classifier (an off-the-shelf NLI cross-encoder, or a Jev-style
-model) could fill that slot later, under these limits:
 
-- off by default, runs only on sentence pairs the lexical rules already
-  retrieved;
-- its output is recorded as its own solver result and can only add a
-  `disagreement` or clear one to `unknown`, never produce `supported`;
-- it ships only after it beats the lexical rules on a labeled set of real
-  conflict and non-conflict pairs from RSO ledgers, stored under
-  `benchmarks/`.
+An earlier draft of this note proposed an optional classifier inside RSO to
+cover that gap. It is withdrawn. A classifier that could add or clear a
+`disagreement` would decide what the ledger returns, and then an answer could
+no longer be traced to a file span and a hash alone. FOR-AGENT-BUILDERS.md
+("Training on ledger data") and the roadmap's out-of-scope list rule that out.
 
-Building that labeled set is worthwhile on its own, since it also measures the
-current rules.
+What stays possible:
+
+- **A caller may run its own model on RSO's output.** `rso-check/v1` returns
+  every span it used, both sides of each disagreement, and expand refs. A
+  caller can feed those to an NLI classifier or a typed decision model and act
+  on the result. That judgment belongs to the caller, is not written back to
+  the ledger, and does not change what RSO returns for the next check.
+- **The lexical rules get better through measurement.** A labeled set of real
+  conflict and non-conflict sentence pairs from RSO ledgers, stored under
+  `benchmarks/`, would show how often the topic-overlap rule misses or
+  over-fires, and would let its thresholds and stopwords be tuned. It is a test
+  fixture for deterministic rules, not training data for RSO.
+- **Named validation stays the way to settle a conflict.** When a check
+  returns `disagreement`, the fix is still a person or deterministic validator
+  recording `verified`, `disputed` or `superseded`, or someone editing the
+  files so they agree.
