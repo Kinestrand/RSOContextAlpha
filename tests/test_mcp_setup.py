@@ -5,9 +5,10 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from rso_context.cli import main
-from rso_context.mcp_setup import remove_client, setup_client
+from rso_context.mcp_setup import inspect_clients, remove_client, setup_client
 
 
 def _restore_env(name: str, previous: str | None) -> None:
@@ -118,6 +119,67 @@ class McpSetupTests(unittest.TestCase):
             0,
         )
         self.assertNotIn("rso-context", config.read_text(encoding="utf-8"))
+
+
+    def test_google_clients_preserve_explicit_json_config(self):
+        config = Path(self.temp.name) / "gemini" / "settings.json"
+        config.parent.mkdir()
+        config.write_text(
+            json.dumps({"security": {"auth": {"selectedType": "oauth-personal"}}, "mcpServers": {"kapture": {"command": "npx", "args": []}}}),
+            encoding="utf-8",
+        )
+        setup_client("gemini", self.root, config=config)
+        setup_client("antigravity", self.root, config=config)
+        data = json.loads(config.read_text(encoding="utf-8"))
+        self.assertEqual(data["security"]["auth"]["selectedType"], "oauth-personal")
+        self.assertEqual(data["mcpServers"]["kapture"]["command"], "npx")
+        self.assertEqual(data["mcpServers"]["rso-context"]["args"][-2], "--root")
+        self.assertNotIn(".cmd", data["mcpServers"]["rso-context"]["command"].lower())
+        removed = remove_client("gemini", config=config)
+        self.assertEqual(removed.get("host"), "gemini")
+        after = json.loads(config.read_text(encoding="utf-8"))
+        self.assertNotIn("rso-context", after["mcpServers"])
+        self.assertIn("kapture", after["mcpServers"])
+
+    def test_google_default_configs_and_removal_are_independent(self):
+        home = Path(self.temp.name) / "home"
+        with patch("pathlib.Path.home", return_value=home), patch.dict(os.environ, {
+            "RSO_MCP_GEMINI_CONFIG": "", "RSO_MCP_ANTIGRAVITY_CONFIG": "",
+        }):
+            gemini = setup_client("gemini", self.root)
+            antigravity = setup_client("antigravity", self.root)
+            self.assertEqual(Path(gemini["path"]), home / ".gemini/settings.json")
+            self.assertEqual(Path(antigravity["path"]), home / ".gemini/config/mcp_config.json")
+            self.assertEqual(antigravity["host"], "antigravity")
+            self.assertTrue(inspect_clients()["antigravity"]["rso_context"])
+            remove_client("antigravity")
+            self.assertFalse(inspect_clients()["antigravity"]["rso_context"])
+            self.assertTrue(inspect_clients()["gemini"]["rso_context"])
+
+    def test_antigravity_environment_config_and_explicit_precedence(self):
+        configured = Path(self.temp.name) / "custom-antigravity.json"
+        explicit = Path(self.temp.name) / "explicit-antigravity.json"
+        with patch.dict(os.environ, {"RSO_MCP_ANTIGRAVITY_CONFIG": str(configured)}):
+            self.assertEqual(setup_client("antigravity", self.root)["path"], str(configured))
+            result = setup_client("antigravity", self.root, config=explicit)
+            self.assertEqual(result["path"], str(explicit))
+            remove_client("antigravity", config=explicit)
+            self.assertIn("rso-context", json.loads(configured.read_text())["mcpServers"])
+
+    def test_doctor_includes_gemini_client(self):
+        db = Path(self.temp.name) / "context.sqlite3"
+        previous_codex = os.environ.get("RSO_MCP_CODEX_CONFIG")
+        previous_claude = os.environ.get("RSO_MCP_CLAUDE_CONFIG")
+        previous_gemini = os.environ.get("RSO_MCP_GEMINI_CONFIG")
+        os.environ["RSO_MCP_CODEX_CONFIG"] = str(Path(self.temp.name) / "missing-codex.toml")
+        os.environ["RSO_MCP_CLAUDE_CONFIG"] = str(Path(self.temp.name) / "missing-claude.json")
+        os.environ["RSO_MCP_GEMINI_CONFIG"] = str(Path(self.temp.name) / "missing-gemini.json")
+        try:
+            self.assertEqual(main(["--db", str(db), "doctor"]), 0)
+        finally:
+            _restore_env("RSO_MCP_CODEX_CONFIG", previous_codex)
+            _restore_env("RSO_MCP_CLAUDE_CONFIG", previous_claude)
+            _restore_env("RSO_MCP_GEMINI_CONFIG", previous_gemini)
 
     def test_doctor_includes_mcp_without_requiring_it_for_ready(self):
         db = Path(self.temp.name) / "context.sqlite3"

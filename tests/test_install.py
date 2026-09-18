@@ -107,6 +107,46 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(Path(result["backups"][0]).read_text(encoding="utf-8"), "previous installation")
         self.assertEqual(target.read_bytes(), (self.source / "install.py").read_bytes())
 
+    @unittest.skipUnless(os.name == "nt", "Windows runtime selection")
+    def test_windows_launchers_respect_runtime_override(self):
+        from rso_context.mcp_runtime import runtime_python
+        runtime = runtime_python()
+        if runtime is None:
+            self.skipTest("existing MCP runtime required; test does not install one")
+        result = installer.install(self.source, self.prefix)
+        program = Path(result["program"])
+        bundled = program / "mcp-runtime/Scripts/python.exe"
+        bundled.parent.mkdir(parents=True)
+        bundled.write_bytes(b"unusable bundled interpreter")
+        commands = [
+            ["cmd", "/d", "/c", result["command"]],
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(program / "rso-context.ps1")],
+        ]
+        env = dict(os.environ, RSO_MCP_RUNTIME=str(runtime.parent.parent),
+                   RSO_CONTEXT_HOME=str(self.base / "scratch-home"), RSO_MCP_IN_RUNTIME="1")
+        def run(command, arguments, environment):
+            argv = command + arguments
+            if command[0] == "cmd":
+                argv = 'cmd /d /s /c "' + subprocess.list2cmdline(command[3:] + arguments) + '"'
+            return subprocess.run(argv, env=environment, capture_output=True, text=True, timeout=30)
+        for command in commands:
+            with self.subTest(command=command[0]):
+                completed = run(command, ["mcp", "--status"], env)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                status = json.loads(completed.stdout)
+                self.assertEqual(Path(status["current_interpreter"]["interpreter"]), runtime)
+                missing_env = dict(env, RSO_MCP_RUNTIME=str(self.base / "missing runtime"))
+                missing = run(command, ["mcp", "--status"], missing_env)
+                self.assertNotEqual(missing.returncode, 0, repr((missing.stdout, missing.stderr)))
+                self.assertIn("RSO_MCP_RUNTIME has no Windows Python", missing.stderr)
+        # Exercise installation command routing without invoking an installer.
+        (program / "src/rso_context/__main__.py").write_text(
+            "import json, sys\nprint(json.dumps({'args': sys.argv[1:]}))\n", encoding="utf-8")
+        for command in commands:
+            completed = run(command, ["mcp", "--install-runtime"], missing_env)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(json.loads(completed.stdout)["args"], ["mcp", "--install-runtime"])
+
     def test_bad_manifest_rejected_before_destination_is_created(self):
         original = self.manifest.read_text(encoding="utf-8")
         for name in ("../outside.txt", "/absolute.txt", "C:/outside.txt", "src/*.py",

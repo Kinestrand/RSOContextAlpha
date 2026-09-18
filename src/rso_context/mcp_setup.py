@@ -13,7 +13,9 @@ from .mcp_runtime import program_root, runtime_python
 
 
 SERVER_NAME = "rso-context"
-CLIENTS = ("codex", "claude-code")
+CLIENTS = ("codex", "claude-code", "gemini", "antigravity")
+JSON_CLIENTS = ("claude-code", "gemini", "antigravity")
+GOOGLE_CLIENTS = ("gemini", "antigravity")
 
 
 def mcp_launch(root: Path) -> dict[str, object]:
@@ -45,6 +47,22 @@ def default_claude_config() -> Path:
     if override:
         return Path(override).expanduser()
     return Path.home() / ".claude.json"
+
+
+def default_gemini_config() -> Path:
+    """Gemini CLI settings path."""
+    override = os.environ.get("RSO_MCP_GEMINI_CONFIG")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".gemini" / "settings.json"
+
+
+def default_antigravity_config() -> Path:
+    """Antigravity global MCP config, separate from Gemini CLI settings."""
+    override = os.environ.get("RSO_MCP_ANTIGRAVITY_CONFIG")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".gemini" / "config" / "mcp_config.json"
 
 
 def _toml_string(value: str) -> str:
@@ -102,11 +120,11 @@ def _write_codex(path: Path, launch: dict[str, object] | None) -> dict[str, obje
     return {"format": "toml", "path": str(path), "wrote": launch is not None}
 
 
-def _write_claude(path: Path, launch: dict[str, object] | None) -> dict[str, object]:
+def _write_json_mcp(path: Path, launch: dict[str, object] | None) -> dict[str, object]:
     if path.is_file():
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
-            raise ValueError("Claude config must be a JSON object")
+            raise ValueError("MCP host config must be a JSON object")
     else:
         data = {}
     servers = data.get("mcpServers")
@@ -128,6 +146,11 @@ def _write_claude(path: Path, launch: dict[str, object] | None) -> dict[str, obj
     return {"format": "json", "path": str(path), "wrote": launch is not None}
 
 
+
+def _write_claude(path: Path, launch: dict[str, object] | None) -> dict[str, object]:
+    return _write_json_mcp(path, launch)
+
+
 def setup_client(client: str, root: str | Path, *, config: str | Path | None = None) -> dict[str, object]:
     if client not in CLIENTS:
         raise ValueError(f"Unsupported client {client!r}; supported: {', '.join(CLIENTS)}")
@@ -136,9 +159,14 @@ def setup_client(client: str, root: str | Path, *, config: str | Path | None = N
     if client == "codex":
         path = Path(config) if config else default_codex_config()
         written = _write_codex(path, launch)
+    elif client in GOOGLE_CLIENTS:
+        default = default_gemini_config if client == "gemini" else default_antigravity_config
+        path = Path(config) if config else default()
+        written = _write_json_mcp(path, launch)
+        written["host"] = client
     else:
         path = Path(config) if config else default_claude_config()
-        written = _write_claude(path, launch)
+        written = _write_json_mcp(path, launch)
     return {
         "schema": "rso-mcp-setup/v1",
         "action": "setup",
@@ -157,9 +185,14 @@ def remove_client(client: str, *, config: str | Path | None = None) -> dict[str,
     if client == "codex":
         path = Path(config) if config else default_codex_config()
         written = _write_codex(path, None)
+    elif client in GOOGLE_CLIENTS:
+        default = default_gemini_config if client == "gemini" else default_antigravity_config
+        path = Path(config) if config else default()
+        written = _write_json_mcp(path, None)
+        written["host"] = client
     else:
         path = Path(config) if config else default_claude_config()
-        written = _write_claude(path, None)
+        written = _write_json_mcp(path, None)
     return {
         "schema": "rso-mcp-setup/v1",
         "action": "remove",
@@ -198,6 +231,8 @@ def inspect_clients() -> dict[str, object]:
     """Read-only. Does not create or edit host configs."""
     codex = default_codex_config()
     claude = default_claude_config()
+    gemini = default_gemini_config()
+    antigravity = default_antigravity_config()
     return {
         "codex": {
             "config": str(codex),
@@ -208,6 +243,16 @@ def inspect_clients() -> dict[str, object]:
             "config": str(claude),
             "exists": claude.is_file(),
             "rso_context": _claude_has_entry(claude),
+        },
+        "gemini": {
+            "config": str(gemini),
+            "exists": gemini.is_file(),
+            "rso_context": _claude_has_entry(gemini),
+        },
+        "antigravity": {
+            "config": str(antigravity),
+            "exists": antigravity.is_file(),
+            "rso_context": _claude_has_entry(antigravity),
         },
         "other_clients": "Documented stdio launch only; not a compatibility claim.",
         "stdio": {
