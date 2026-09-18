@@ -1,4 +1,24 @@
-# RSO 0.8.0 verification status
+# RSO verification status
+
+## 0.8.1, September 18
+
+Release checks for 0.8.1 on Windows 11 with Python 3.12.5: 114 regression
+tests passed with one POSIX-only test skipped, including the new Windows
+launcher test for `RSO_MCP_RUNTIME`. The release builder produced a 57-file
+archive that passed its manifest and archive checks; the SHA-256 is published
+with the release. GitHub Actions runs the suite on Windows, Ubuntu, and macOS
+with Python 3.11 and 3.12 for the release commit; the release page links that
+run.
+
+The disagreement and budget changes were compared on this repository's own
+documentation before merging. Two queries that previously reported a false
+disagreement and returned no evidence or expand refs now return evidence and
+refs; a query with no conflict was unchanged. No live Gemini CLI or
+Antigravity MCP session has been recorded, so those two setup targets are
+checked only by isolated configuration tests.
+
+## 0.8.0 records
+
 
 Updated September 12, 2026 (UTC). This record separates observed checks from untested environments. It contains no local project paths, source excerpts, account configuration, or ledger exports.
 

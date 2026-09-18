@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.8.1
+
+### Added
+
+- `rso-context mcp --setup --client gemini` and `--client antigravity`. Gemini
+  CLI writes `~/.gemini/settings.json`; Antigravity writes
+  `~/.gemini/config/mcp_config.json`. `RSO_MCP_GEMINI_CONFIG` and
+  `RSO_MCP_ANTIGRAVITY_CONFIG` override the paths, and `doctor` reports both.
+- The Windows `cmd` and PowerShell launchers use `RSO_MCP_RUNTIME` when set
+  and fail with a clear message when it has no `python.exe`.
+- `DESIGN-RSO-CHECK.md`, a proposal for typed evidence questions. Not
+  implemented.
+- The release ZIP now carries the Linux path-isolation fixes, Git Bash
+  launcher, and cross-platform CI that landed after 0.8.0 was packaged.
 
 ### Fixed
 

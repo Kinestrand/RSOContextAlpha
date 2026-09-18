@@ -1,6 +1,6 @@
-# RSO Context Alpha 0.8.0
+# RSO Context Alpha 0.8.1
 
-[Download 0.8.0](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.8.0) ·
+[Download 0.8.1](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.8.1) ·
 [Quick-start](QUICKSTART.md) · [Installation](INSTALL.md) ·
 [Manual](MANUAL.md) · [Changes](CHANGELOG.md) · [Verification](VERIFICATION.md)
 
@@ -21,8 +21,8 @@ The files remain the source of truth. RSO doesn't learn from chat, call a model,
 
 ## Start here
 
-Download **RSOContextAlpha-0.8.0.zip** from the
-[0.8.0 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.8.0) and
+Download **RSOContextAlpha-0.8.1.zip** from the
+[0.8.1 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.8.1) and
 extract it. The release page includes a SHA-256 checksum. GitHub access is
 required while the repository is private. A release ZIP is tied to a version;
 **Code > Download ZIP** downloads the selected branch's current source instead.
@@ -58,7 +58,18 @@ MCP permissions and searchable context are separate. A launch `--root` permits a
 | Integrate through MCP | Configure bounded launch roots and call `rso_use` before querying |
 | Inspect the ledger locally | Run the optional read-only localhost viewer with `admin` |
 
-## What's new in 0.8.0
+## What's new in 0.8.1
+
+- Fewer false conflicts. A "do not" in one file and a "must" in another now
+  count as a disagreement only when both sentences are about the same thing.
+- Compact packets that hit a conflict keep a two-sided pair of spans, or at
+  least the expand refs, instead of returning nothing.
+- MCP setup for Gemini CLI and Antigravity, each with its own config file.
+- Windows launchers honor `RSO_MCP_RUNTIME`.
+- Linux path-isolation fixes and the Git Bash launcher, which were on the
+  development branch after 0.8.0, are now in the release ZIP.
+
+## What was new in 0.8.0
 
 - Optional local stdio MCP tools for use, resume, query, explain, and expansion.
 - Compact evidence packets with byte budgets and recovery of omitted spans.
@@ -81,15 +92,14 @@ python -B install.py
 & "$env:USERPROFILE\.local\bin\rso-context.cmd" doctor
 ```
 
-The version should be `0.8.0`; `doctor` should report `ready: true`. The installer
+The version should be `0.8.1`; `doctor` should report `ready: true`. The installer
 prints the command path and does not change PATH. Follow the
 [quick-start demo](QUICKSTART.md) for a complete example using a disposable
 project and ledger. [INSTALL.md](INSTALL.md) covers Linux, macOS, and custom paths;
-automated macOS checks passed on the current branch (see VERIFICATION.md).
+automated Windows, Ubuntu, and macOS checks run on every change (see VERIFICATION.md).
 
-The current branch also includes Linux path-isolation fixes, Git Bash launcher
-support, and Windows/Ubuntu/macOS CI checks. These changes are newer than the
-published 0.8.0 ZIP. To try them, use the current branch source and follow
+The 0.8.1 ZIP includes the Linux path-isolation fixes and Git Bash launcher
+support. For Linux, follow
 [the Linux installation instructions](INSTALL.md#linux). See
 [VERIFICATION.md](VERIFICATION.md) for recorded Debian and Ubuntu checks.
 
