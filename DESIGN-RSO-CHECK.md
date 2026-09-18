@@ -253,6 +253,13 @@ Where v1 differs from or adds to the text above:
   Cycles, not Arnold" selects Cycles and excludes Arnold.
 - A caller `pattern` has no timeout (Python's `re` has none); patterns with a
   nested quantifier are rejected instead.
+- Source lines are rejoined into sentences before matching: a line continues
+  into the next only when it does not end in sentence punctuation and neither
+  line is structural. Evidence carries the line range the sentence spans.
+- Sentences that record a question or suggestion ("asked", "whether",
+  "proposed", "TBD", "should we", or a question mark) are not evidence for or
+  against anything.
+- Negation uses the one rule in `query.py`, shared with the conflict detector.
 - Budget trimming keeps one span per side before dropping witnesses. Below
   that, the packet falls back to ids and answers only, then drops keys until it
   fits.

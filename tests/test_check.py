@@ -108,6 +108,64 @@ class ClaimTests(CheckTestCase):
         self.assertTrue(result["same_path"])
 
 
+class SentenceAssemblyTests(CheckTestCase):
+    def test_sentence_wrapped_across_lines_is_read_as_one(self):
+        self.write("spec.md", "# Spec\n\nDecision: export the preview\nat 24 fps for all reels.\n")
+        self.ingest()
+        result = self.answer({"id": "fps", "type": "claim", "text": "Preview export is 24 fps"})
+        self.assertEqual(result["answer"], "supported")
+        evidence = result["evidence"][0]
+        self.assertIn("export the preview at 24 fps", evidence["text"])
+        self.assertEqual((evidence["line_start"], evidence["line_end"]), (3, 4))
+        self.assertEqual(evidence["expand"]["line_start"], 3)
+        self.assertEqual(evidence["expand"]["line_end"], 4)
+
+    def test_list_items_and_table_rows_are_not_merged(self):
+        self.write(
+            "spec.md",
+            "# Spec\n\n- Preview export uses Cycles\n- Preview export uses Eevee\n\n| a | b |\n",
+        )
+        self.ingest()
+        result = self.answer(
+            {
+                "id": "r",
+                "type": "choice",
+                "text": "Which renderer does preview export use?",
+                "options": ["Cycles", "Eevee"],
+            }
+        )
+        # Two separate list items, so two competing options, not one merged sentence.
+        self.assertEqual(result["answer"], "disagreement")
+        self.assertEqual(
+            {(item["line_start"], item["line_end"]) for item in result["evidence"]}, {(3, 3), (4, 4)}
+        )
+
+    def test_recorded_questions_are_not_evidence(self):
+        self.write("spec.md", "# Spec\n\nSomeone asked whether preview export is 24 fps.\n")
+        self.ingest()
+        claim = self.answer({"id": "fps", "type": "claim", "text": "Preview export is 24 fps"})
+        self.assertEqual(claim["answer"], "unknown")
+        self.write("spec.md", "# Spec\n\nShould we set the preview export frame rate to 60 fps?\n")
+        self.ingest()
+        value = self.answer({"id": "v", "type": "value", "text": "preview export frame rate", "unit": "fps"})
+        self.assertEqual(value["answer"], "unknown")
+
+    def test_plain_not_is_negation_for_query_and_check_alike(self):
+        from rso_context.query import texts_disagree
+
+        self.write("a.md", "Decision: preview export must be 24 fps.\n")
+        self.write("b.md", "Preview export is not 24 fps.\n")
+        self.ingest()
+        result = self.answer({"id": "fps", "type": "claim", "text": "Preview export is 24 fps"})
+        self.assertEqual(result["answer"], "disagreement")
+        self.assertTrue(
+            texts_disagree(
+                ["Decision: preview export must be 24 fps.", "Preview export is not 24 fps."],
+                ["a.md", "b.md"],
+            )
+        )
+
+
 class ChoiceTests(CheckTestCase):
     QUESTION = {
         "id": "renderer",

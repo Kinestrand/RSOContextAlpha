@@ -13,6 +13,7 @@ import json
 import re
 import time
 import uuid
+from functools import lru_cache
 from pathlib import Path
 
 from .compact import _make_ref, serialized_bytes, token_estimate
@@ -48,9 +49,15 @@ _ALLOWED_KEYS = {
 _QUESTION_WORDS = frozenset("which what where who whom whose how why does did pick picked choose chosen".split())
 _STEM_SUFFIXES = ("ing", "ed", "er")
 _SIBILANT_PLURALS = ("ches", "shes", "sses", "xes", "zes")
-# Broader than query's conflict negation: a claim check must see "is not" and contractions.
-_CHECK_NEGATION = re.compile(r"\b(?:not|never|cannot|no\s+longer)\b|n't\b", re.IGNORECASE)
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+_ENDS_SENTENCE = re.compile(r"[.!?:;|`]\s*$")
+_STRUCTURAL_LINE = re.compile(r"\s*(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|\||```|~~~|>|\t|    \S)")
+# A recorded question or suggestion is not a decision, so it is not evidence either way.
+_REPORT_CUE = re.compile(
+    r"\b(?:asked|asking|whether|unclear|undecided|tbd|to\s+be\s+decided|open\s+question"
+    r"|propos(?:e|es|ed|al)|consider(?:ing)?|should\s+we|do\s+we|maybe|might\s+we)\b",
+    re.IGNORECASE,
+)
 _CLAUSE_SPLIT = re.compile(r"\s*[,;:]\s*|\s+but\s+", re.IGNORECASE)
 # Plain or comma-grouped numbers: 24, 4.2, 12,000.
 _NUM = r"-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
@@ -189,6 +196,7 @@ def _stem(token: str) -> str:
     return token
 
 
+@lru_cache(maxsize=8192)
 def _topics(text: str) -> frozenset[str]:
     return frozenset(_stem(token) for token in _topic_tokens(text) if token not in _QUESTION_WORDS)
 
@@ -204,7 +212,7 @@ def _related(question: frozenset[str], sentence: frozenset[str], *, symmetric: b
 
 
 def _negated(text: str) -> bool:
-    return _text_has_negation(text) or _CHECK_NEGATION.search(text) is not None
+    return _text_has_negation(text)
 
 
 def _as_number(text: str) -> float | int | None:
@@ -219,27 +227,59 @@ def _numbers(text: str) -> set[float]:
     return {float(match.replace(",", "")) for match in _NUMBER.findall(text)}
 
 
-def _sentences(row: dict) -> list[tuple[int, str]]:
+def _joined_blocks(text: str, start: int) -> list[tuple[int, int, str]]:
+    """Rejoin hard-wrapped prose: a line continues into the next only when it clearly runs on.
+
+    Documentation is commonly wrapped at 80 columns, and a sentence split across two
+    lines used to be invisible to every rule here. Structural lines (headings, list
+    items, table rows, fences, indented code) never join, so list items stay separate.
+    """
+    lines = text.splitlines()
+    blocks: list[tuple[int, int, str]] = []
+    index = 0
+    while index < len(lines):
+        first = index
+        buffer = lines[index]
+        while (
+            index + 1 < len(lines)
+            and buffer.strip()
+            and not _STRUCTURAL_LINE.match(buffer)
+            and not _ENDS_SENTENCE.search(buffer)
+            and lines[index + 1].strip()
+            and not _STRUCTURAL_LINE.match(lines[index + 1])
+        ):
+            index += 1
+            buffer = buffer.rstrip() + " " + lines[index].strip()
+        if buffer.strip():
+            blocks.append((start + first, start + index, buffer))
+        index += 1
+    return blocks
+
+
+def _sentences(row: dict) -> list[tuple[int, int, str]]:
     start = int(row["line_start"])
-    result: list[tuple[int, str]] = []
-    for offset, line in enumerate(str(row.get("text") or "").splitlines()):
-        for piece in _SENTENCE_END.split(line):
+    result: list[tuple[int, int, str]] = []
+    for line_start, line_end, block in _joined_blocks(str(row.get("text") or ""), start):
+        for piece in _SENTENCE_END.split(block):
             text = piece.strip(" \t-*#>")
-            if text:
-                result.append((start + offset, text))
+            if not text:
+                continue
+            # A rejoined block reports the lines it spans; an ordinary line reports itself.
+            result.append((line_start, line_end, text))
     return result
 
 
-def _evidence(row: dict, line: int, sentence: str, **extra: object) -> dict[str, object]:
+def _evidence(row: dict, span: tuple[int, int], sentence: str, **extra: object) -> dict[str, object]:
+    line_start, line_end = span
     item: dict[str, object] = {
         "project_id": row.get("project_id"),
         "relative_path": row.get("relative_path"),
-        "line_start": line,
-        "line_end": line,
+        "line_start": line_start,
+        "line_end": line_end,
         "text": sentence[:EXCERPT_CHARS],
         "source_hash": row.get("source_hash"),
         "chunk_hash": row.get("chunk_hash"),
-        "expand": _make_ref(row, line, line),
+        "expand": _make_ref(row, line_start, line_end),
     }
     if len(sentence) > EXCERPT_CHARS:
         item["truncated"] = True
@@ -248,15 +288,21 @@ def _evidence(row: dict, line: int, sentence: str, **extra: object) -> dict[str,
     return item
 
 
-def _unique_sentences(rows: list[dict]) -> list[tuple[dict, int, str]]:
+def _is_reported(sentence: str) -> bool:
+    """A recorded question or suggestion is not a decision, so it is not evidence either way."""
+    return "?" in sentence or _REPORT_CUE.search(sentence) is not None
+
+
+def _unique_sentences(rows: list[dict]) -> list[tuple[dict, tuple[int, int], str]]:
     seen: set[tuple[str, int, str]] = set()
-    result: list[tuple[dict, int, str]] = []
+    result: list[tuple[dict, tuple[int, int], str]] = []
     for row in rows:
-        for line, sentence in _sentences(row):
-            key = (str(row.get("relative_path")), line, sentence)
-            if key not in seen:
-                seen.add(key)
-                result.append((row, line, sentence))
+        for line_start, line_end, sentence in _sentences(row):
+            key = (str(row.get("relative_path")), line_start, sentence)
+            if key in seen or _is_reported(sentence):
+                continue
+            seen.add(key)
+            result.append((row, (line_start, line_end), sentence))
     return result
 
 
@@ -289,7 +335,7 @@ def _evaluate_claim(question: dict, sentences: list[tuple[dict, int, str]]) -> d
     claim_numbers = _numbers(text)
     support: list[dict] = []
     oppose: list[dict] = []
-    for row, line, sentence in sentences:
+    for row, span, sentence in sentences:
         if not _related(topic, _topics(sentence), symmetric=True):
             continue
         negated = _negated(sentence)
@@ -301,9 +347,9 @@ def _evaluate_claim(question: dict, sentences: list[tuple[dict, int, str]]) -> d
             if not claim_numbers <= stated:
                 # A different stated number contradicts an affirmative claim; negations say nothing.
                 if not claim_negated and not negated:
-                    oppose.append(_evidence(row, line, sentence, polarity=polarity, reason="number_mismatch"))
+                    oppose.append(_evidence(row, span, sentence, polarity=polarity, reason="number_mismatch"))
                 continue
-        (support if negated == claim_negated else oppose).append(_evidence(row, line, sentence, polarity=polarity))
+        (support if negated == claim_negated else oppose).append(_evidence(row, span, sentence, polarity=polarity))
     if support and oppose:
         return _answer(question, "disagreement", None, support, oppose)
     if support:
@@ -325,7 +371,7 @@ def _evaluate_choice(question: dict, sentences: list[tuple[dict, int, str]]) -> 
     topic = _topics(str(question["text"])) - phrase_topics
     for_option: dict[str, list[dict]] = {option: [] for option in options}
     against: dict[str, list[dict]] = {option: [] for option in options}
-    for row, line, sentence in sentences:
+    for row, span, sentence in sentences:
         if topic and not _related(topic, _topics(sentence), symmetric=False):
             continue
         hits: dict[tuple[str, bool], str] = {}
@@ -336,7 +382,7 @@ def _evaluate_choice(question: dict, sentences: list[tuple[dict, int, str]]) -> 
                     hits.setdefault((option, negated), phrase)
         for (option, negated), phrase in hits.items():
             item = _evidence(
-                row, line, sentence, polarity="negated" if negated else "affirmative", matched=phrase
+                row, span, sentence, polarity="negated" if negated else "affirmative", matched=phrase
             )
             (against if negated else for_option)[option].append(item)
     supported = [option for option in options if for_option[option]]
@@ -366,7 +412,7 @@ def _evaluate_value(question: dict, sentences: list[tuple[dict, int, str]]) -> d
         topic = _topics(str(question["text"]))
     found: list[dict] = []
     values: list[object] = []
-    for row, line, sentence in sentences:
+    for row, span, sentence in sentences:
         if not _related(topic, _topics(sentence), symmetric=False) or _negated(sentence):
             continue
         for match in pattern.finditer(sentence):
@@ -377,7 +423,7 @@ def _evaluate_value(question: dict, sentences: list[tuple[dict, int, str]]) -> d
             value = number if number is not None else raw
             if value not in values:
                 values.append(value)
-            found.append(_evidence(row, line, sentence, value=value))
+            found.append(_evidence(row, span, sentence, value=value))
     if len(values) == 1:
         result = _answer(question, "found", values[0], found, [])
     elif values:
@@ -404,29 +450,48 @@ def _retrieval_texts(question: dict) -> list[str]:
 # ---------------------------------------------------------------- validations
 
 
-def _attach_validations(connection, project_ids: list[str], answer: dict) -> None:
-    items = answer["evidence"] + answer["counter_evidence"]
-    chunk_ids = sorted({int(item["_chunk_id"]) for item in items if item.get("_chunk_id") is not None})
-    claims = _claims_for_chunks(connection, project_ids, chunk_ids)
-    sentences = [re.sub(r"\s+", " ", str(item["text"])).casefold() for item in items]
-    matched = {}
-    for claim in claims:
-        display = re.sub(r"\s+", " ", str(claim.get("display_text") or "")).casefold().strip()
-        if display and any(display in sentence or sentence in display for sentence in sentences):
-            matched[str(claim["id"])] = claim
-    records = _validation_matches(connection, sorted(matched))
-    answer["validations"] = [
+def _attach_validations(connection, project_ids: list[str], answers: list[dict]) -> None:
+    """One claims query and one validations query for every answer in the call."""
+    chunk_ids = sorted(
         {
-            "claim_id": record["claim_id"],
-            "claim_text": matched[str(record["claim_id"])].get("display_text"),
-            "validator": record["validator"],
-            "result": record["result"],
-            "observed_at": record["observed_at"],
+            int(item["_chunk_id"])
+            for answer in answers
+            for item in answer["evidence"] + answer["counter_evidence"]
+            if item.get("_chunk_id") is not None
         }
-        for record in records
+    )
+    claims = _claims_for_chunks(connection, project_ids, chunk_ids)
+    if not claims:
+        return
+    records_by_claim: dict[str, list[dict]] = {}
+    for record in _validation_matches(connection, sorted({str(claim["id"]) for claim in claims})):
+        records_by_claim.setdefault(str(record["claim_id"]), []).append(record)
+    if not records_by_claim:
+        return
+    displays = [
+        (str(claim["id"]), re.sub(r"\s+", " ", str(claim.get("display_text") or "")).casefold().strip(), claim)
+        for claim in claims
     ]
-    if answer["validations"]:
-        answer["basis"] = "validated"
+    for answer in answers:
+        items = answer["evidence"] + answer["counter_evidence"]
+        sentences = [re.sub(r"\s+", " ", str(item["text"])).casefold() for item in items]
+        for claim_id, display, claim in displays:
+            if not display or claim_id not in records_by_claim:
+                continue
+            if not any(display in sentence or sentence in display for sentence in sentences):
+                continue
+            answer["validations"].extend(
+                {
+                    "claim_id": record["claim_id"],
+                    "claim_text": claim.get("display_text"),
+                    "validator": record["validator"],
+                    "result": record["result"],
+                    "observed_at": record["observed_at"],
+                }
+                for record in records_by_claim[claim_id]
+            )
+        if answer["validations"]:
+            answer["basis"] = "validated"
 
 
 # ---------------------------------------------------------------- main entry
@@ -497,9 +562,8 @@ def check_questions(
                     hydrated = hydrate_chunk_row(row, plate_cache)
                     if not hydrated.get("stale"):
                         rows.append(hydrated)
-            answer = _EVALUATORS[str(question["type"])](question, _unique_sentences(rows))
-            _attach_validations(connection, scoped_ids, answer)
-            answers.append(answer)
+            answers.append(_EVALUATORS[str(question["type"])](question, _unique_sentences(rows)))
+        _attach_validations(connection, scoped_ids, answers)
     for answer in answers:
         for item in answer["evidence"] + answer["counter_evidence"]:
             item.pop("_chunk_id", None)
@@ -558,11 +622,14 @@ def fit_check(full: dict[str, object], byte_budget: int = Limits.compact_byte_bu
     witnesses themselves (status becomes insufficient_budget), then omitted refs.
     """
     budget = max(256, int(byte_budget))
-    packet = copy.deepcopy(full)
-    packet.pop("questions", None)
+    packet = {key: value for key, value in full.items() if key != "questions"}
     packet["omitted"] = []
     packet["omitted_count"] = 0
     packet["byte_budget"] = budget
+    if _stamp(packet) <= budget:
+        return packet
+    # Trimming mutates answers, so copy only once it is needed.
+    packet = copy.deepcopy(packet)
     answers: list[dict] = list(packet.get("answers") or [])
 
     def over() -> bool:
