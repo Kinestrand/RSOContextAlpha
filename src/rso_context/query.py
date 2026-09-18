@@ -97,8 +97,10 @@ LONG_LEAF_CHARS = 80
 
 _CLAUSE_SPLIT = re.compile(r"\s*(?:;|\n|\.(?=\s+[A-Z]))\s*")
 _AND_SPLIT = re.compile(r"\s+\band\b\s+", re.IGNORECASE)
+# One negation rule for the whole codebase: the conflict detector and rso_check
+# used to disagree about plain "not", so the same sentence read two ways.
 _NEGATION_SPAN = re.compile(
-    r"\b(?:must\s+not|do\s+not|don't|never|not\s+approved|unapproved)\b",
+    r"\b(?:not|never|cannot|no\s+longer|unapproved)\b|n't\b",
     re.IGNORECASE,
 )
 _AFFIRM_MUST = re.compile(r"\bmust\b(?!\s+not\b)", re.IGNORECASE)

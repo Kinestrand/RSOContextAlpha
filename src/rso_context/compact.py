@@ -310,14 +310,15 @@ def _conflict_witness(conflict: list[dict[str, object]]) -> list[dict[str, objec
     """Smallest pair of excerpts from different paths that still shows both sides of the conflict."""
     best: list[dict[str, object]] = []
     best_size = 0
+    sizes = [serialized_bytes(item) for item in conflict]
     for index, left in enumerate(conflict):
-        for right in conflict[index + 1 :]:
+        for offset, right in enumerate(conflict[index + 1 :], start=index + 1):
             if left.get("relative_path") == right.get("relative_path"):
                 continue
             texts = [str(left.get("text") or ""), str(right.get("text") or "")]
             if not texts_disagree(texts):
                 continue
-            size = serialized_bytes(left) + serialized_bytes(right)
+            size = sizes[index] + sizes[offset]
             if not best or size < best_size:
                 best, best_size = [left, right], size
     return best

@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Hard-wrapped sentences are read as one sentence. A line continues into the
+  next only when it does not end in sentence punctuation and neither line is
+  structural (heading, list item, table row, fence, indented code), so list
+  items stay separate. Evidence reports the line range the sentence spans.
+  Before this, a claim written across two lines returned `unknown`, which is
+  common in documentation wrapped at 80 columns.
+- A recorded question or suggestion is no longer evidence. Sentences carrying a
+  question mark or a cue such as "asked", "whether", "proposed", "TBD" or
+  "should we" are skipped, so "Someone asked whether preview export is 24 fps"
+  no longer makes that claim `supported`.
+- One negation rule for the whole codebase. The conflict detector ignored a
+  plain "not" while `rso_check` counted it, so the two read the same sentence
+  differently. Measured on this repository's own documentation, widening the
+  conflict rule changed no query result.
+
+### Changed
+
+- Validation lookups run one claims query and one validations query per check
+  instead of two queries per answer; topic-word sets are cached; the byte-budget
+  trimmer copies the result only when trimming is needed; and the conflict
+  witness scan measures each excerpt once. A twelve-question check over this
+  repository went from a median of 163 ms to 138 ms with identical answers.
+
 ## 0.9.0
 
 ### Added
