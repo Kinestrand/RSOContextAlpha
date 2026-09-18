@@ -1,5 +1,22 @@
 # RSO verification status
 
+## 0.9.0, September 18
+
+Release checks for 0.9.0 on Windows 11 with Python 3.12.5: 137 regression
+tests passed with one POSIX-only test skipped, including a live stdio MCP
+`rso_check` round trip inside its byte budget and a root-isolation test that
+fails without the fix it covers. GitHub Actions runs the suite on Windows,
+Ubuntu, and macOS with Python 3.11 and 3.12 for the release commit.
+
+`rso_check` answers were spot-checked against this repository with a scratch
+ledger: the Python requirement and the pinned MCP SDK version were extracted by
+pattern, an embeddings claim was contradicted from README text, the license was
+selected through an alias, and a value stated nowhere in prose returned
+`unknown`. Those are single observations on one corpus, not a measured accuracy
+rate. The lexical rules have known gaps: a sentence that merely mentions an
+option counts as selecting it, and conflicts phrased with different words are
+missed.
+
 ## 0.8.1, September 18
 
 Release checks for 0.8.1 on Windows 11 with Python 3.12.5: 114 regression

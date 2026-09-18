@@ -1,6 +1,6 @@
-# RSO Context Alpha 0.8.1
+# RSO Context Alpha 0.9.0
 
-[Download 0.8.1](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.8.1) ·
+[Download 0.9.0](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.0) ·
 [Quick-start](QUICKSTART.md) · [Installation](INSTALL.md) ·
 [Manual](MANUAL.md) · [Changes](CHANGELOG.md) · [Verification](VERIFICATION.md)
 
@@ -21,8 +21,8 @@ The files remain the source of truth. RSO doesn't learn from chat, call a model,
 
 ## Start here
 
-Download **RSOContextAlpha-0.8.1.zip** from the
-[0.8.1 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.8.1) and
+Download **RSOContextAlpha-0.9.0.zip** from the
+[0.9.0 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.0) and
 extract it. The release page includes a SHA-256 checksum. GitHub access is
 required while the repository is private. A release ZIP is tied to a version;
 **Code > Download ZIP** downloads the selected branch's current source instead.
@@ -58,7 +58,20 @@ MCP permissions and searchable context are separate. A launch `--root` permits a
 | Integrate through MCP | Configure bounded launch roots and call `rso_use` before querying |
 | Inspect the ledger locally | Run the optional read-only localhost viewer with `admin` |
 
-## What's new in 0.8.1
+## What's new in 0.9.0
+
+- Typed evidence questions. `rso-context check` and MCP `rso_check` answer up
+  to 12 `claim`, `choice`, or `value` questions per call from current source
+  sentences, each answer carrying the spans behind it.
+- Answers are evidence statuses, never probabilities: `supported`,
+  `contradicted`, `selected`, `found`, `disagreement`, or `unknown`. A check
+  never changes trust state, and a supported answer is not verification.
+- `explain` accepts a check hash and marks evidence whose source file changed
+  since the check ran.
+- MCP checks drop projects outside the launch roots before answering, and omit
+  their names and identifiers from the result.
+
+## What was new in 0.8.1
 
 - Fewer false conflicts. A "do not" in one file and a "must" in another now
   count as a disagreement only when both sentences are about the same thing.
@@ -96,13 +109,13 @@ python -B install.py
 & "$env:USERPROFILE\.local\bin\rso-context.cmd" doctor
 ```
 
-The version should be `0.8.1`; `doctor` should report `ready: true`. The installer
+The version should be `0.9.0`; `doctor` should report `ready: true`. The installer
 prints the command path and does not change PATH. Follow the
 [quick-start demo](QUICKSTART.md) for a complete example using a disposable
 project and ledger. [INSTALL.md](INSTALL.md) covers Linux, macOS, and custom paths;
 automated Windows, Ubuntu, and macOS checks run on every change (see VERIFICATION.md).
 
-The 0.8.1 ZIP includes the Linux path-isolation fixes and Git Bash launcher
+The 0.9.0 ZIP includes the Linux path-isolation fixes and Git Bash launcher
 support. For Linux, follow
 [the Linux installation instructions](INSTALL.md#linux). See
 [VERIFICATION.md](VERIFICATION.md) for recorded Debian and Ubuntu checks.
