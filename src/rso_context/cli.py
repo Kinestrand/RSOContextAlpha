@@ -690,7 +690,7 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_parser.add_argument(
         "--client",
         choices=("codex", "claude-code", "gemini", "antigravity"),
-        help="Host to configure: Codex, Claude Code, or Gemini/Antigravity (~/.gemini/settings.json)",
+        help="Host to configure: Codex, Claude Code, Gemini CLI, or Antigravity (separate host configs)",
     )
     mcp_parser.add_argument(
         "--config",

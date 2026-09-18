@@ -5,9 +5,10 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from rso_context.cli import main
-from rso_context.mcp_setup import remove_client, setup_client
+from rso_context.mcp_setup import inspect_clients, remove_client, setup_client
 
 
 def _restore_env(name: str, previous: str | None) -> None:
@@ -120,7 +121,7 @@ class McpSetupTests(unittest.TestCase):
         self.assertNotIn("rso-context", config.read_text(encoding="utf-8"))
 
 
-    def test_gemini_and_antigravity_alias_write_settings_json(self):
+    def test_google_clients_preserve_explicit_json_config(self):
         config = Path(self.temp.name) / "gemini" / "settings.json"
         config.parent.mkdir()
         config.write_text(
@@ -139,6 +140,31 @@ class McpSetupTests(unittest.TestCase):
         after = json.loads(config.read_text(encoding="utf-8"))
         self.assertNotIn("rso-context", after["mcpServers"])
         self.assertIn("kapture", after["mcpServers"])
+
+    def test_google_default_configs_and_removal_are_independent(self):
+        home = Path(self.temp.name) / "home"
+        with patch("pathlib.Path.home", return_value=home), patch.dict(os.environ, {
+            "RSO_MCP_GEMINI_CONFIG": "", "RSO_MCP_ANTIGRAVITY_CONFIG": "",
+        }):
+            gemini = setup_client("gemini", self.root)
+            antigravity = setup_client("antigravity", self.root)
+            self.assertEqual(Path(gemini["path"]), home / ".gemini/settings.json")
+            self.assertEqual(Path(antigravity["path"]), home / ".gemini/config/mcp_config.json")
+            self.assertEqual(antigravity["host"], "antigravity")
+            self.assertTrue(inspect_clients()["antigravity"]["rso_context"])
+            remove_client("antigravity")
+            self.assertFalse(inspect_clients()["antigravity"]["rso_context"])
+            self.assertTrue(inspect_clients()["gemini"]["rso_context"])
+
+    def test_antigravity_environment_config_and_explicit_precedence(self):
+        configured = Path(self.temp.name) / "custom-antigravity.json"
+        explicit = Path(self.temp.name) / "explicit-antigravity.json"
+        with patch.dict(os.environ, {"RSO_MCP_ANTIGRAVITY_CONFIG": str(configured)}):
+            self.assertEqual(setup_client("antigravity", self.root)["path"], str(configured))
+            result = setup_client("antigravity", self.root, config=explicit)
+            self.assertEqual(result["path"], str(explicit))
+            remove_client("antigravity", config=explicit)
+            self.assertIn("rso-context", json.loads(configured.read_text())["mcpServers"])
 
     def test_doctor_includes_gemini_client(self):
         db = Path(self.temp.name) / "context.sqlite3"

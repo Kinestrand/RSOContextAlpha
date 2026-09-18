@@ -14,8 +14,17 @@ try {
         $env:PYTHONPATH = "$toolRoot\src"
     }
     $python = "python"
-    if ($args.Count -ge 1 -and $args[0] -eq "mcp") {
-        $runtimePy = Join-Path $toolRoot "mcp-runtime\Scripts\python.exe"
+    if ($args.Count -ge 1 -and $args[0] -eq "mcp" -and $args -notcontains "--install-runtime") {
+        Remove-Item Env:RSO_MCP_IN_RUNTIME -ErrorAction SilentlyContinue
+        $runtimeRoot = Join-Path $toolRoot "mcp-runtime"
+        if ($env:RSO_MCP_RUNTIME) {
+            $runtimeRoot = $env:RSO_MCP_RUNTIME
+        }
+        $runtimePy = Join-Path $runtimeRoot "Scripts\python.exe"
+        if ($env:RSO_MCP_RUNTIME -and -not (Test-Path $runtimePy -PathType Leaf)) {
+            [Console]::Error.WriteLine("RSO_MCP_RUNTIME has no Windows Python: $runtimePy")
+            exit 1
+        }
         if (Test-Path $runtimePy) {
             $python = $runtimePy
             $env:RSO_MCP_IN_RUNTIME = "1"
