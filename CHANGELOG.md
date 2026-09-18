@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0
 
 ### Added
 
@@ -11,6 +11,9 @@
   per-option aliases and never break ties by rank. One call with up to 12
   questions uses one run-budget unit. `explain` accepts a `check_hash` and
   marks evidence whose source changed since the check.
+- MCP checks list only projects whose folder sits under a launch root; a
+  shared or domain project outside the roots no longer appears by name or id
+  in `search_order` or `corpus_versions`.
 
 ## 0.8.1
 

@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 import install as installer
+from rso_context import __version__
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,7 +52,7 @@ class InstallTests(unittest.TestCase):
 
         completed = run_command(["--version"])
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn("0.8.", completed.stdout)
+        self.assertIn(__version__, completed.stdout)
         project = self.base / "bounded project"
         project.mkdir()
         (project / "AGENTS.md").write_text("Decision: widgets must stay blue.\n", encoding="utf-8")
@@ -82,7 +83,7 @@ class InstallTests(unittest.TestCase):
             capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn("0.8.", completed.stdout)
+        self.assertIn(__version__, completed.stdout)
 
     @unittest.skipUnless(os.name == "nt", "Windows execution policy regression")
     def test_windows_command_runs_under_restricted_policy(self):
@@ -94,7 +95,7 @@ class InstallTests(unittest.TestCase):
             capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn("0.8.", completed.stdout)
+        self.assertIn(__version__, completed.stdout)
         pointer = Path(result["command"]).read_text(encoding="utf-8")
         self.assertNotIn("powershell", pointer.casefold())
 
