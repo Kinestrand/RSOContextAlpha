@@ -77,6 +77,14 @@ Nothing below is a secret sauce. It is why the boring parts matter.
 
 **Agents never write truth.** They may propose. Promotion is a human or a deterministic check they already trust (a test, a schema, a named sign-off). That is the same split as CI vs a merge: the bot can run the suite; it does not own main.
 
+## Training on ledger data
+
+RSO does not train models and will not. Fine-tuning frameworks such as Unsloth belong downstream, in your own pipeline, reading RSO's JSON output.
+
+The useful signal is the trust state. A claim someone recorded as `verified` with `record-validation` is a candidate positive example; a `disputed` or `superseded` claim is a candidate negative. Pairing them gives you preference data with a named decision and a source span behind every label. Proposals that nobody has validated are not labels, and neither are packet hashes, lexical Match Move coverage, or a passing `validate` run. Those check retrieval and ledger consistency, not whether an answer was right.
+
+Keep the training job outside the RSO install. It needs a GPU stack (CUDA, Triton, model weights) that the ledger deliberately avoids, and a model trained on the ledger must not become an input that decides what the ledger returns. Once that happens, an answer can no longer be traced to a file span and a hash.
+
 ## What this is not
 
 Not a second brain. Not Graft. Not ChatGPT memory. Not an embedding database. Not a proof that the model reasoned correctly. Not a replacement for reading the file.

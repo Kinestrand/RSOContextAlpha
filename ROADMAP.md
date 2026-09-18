@@ -48,7 +48,7 @@ The unique leftover from V4.1. The ledger already stores plates. This is the mat
 
 ## Out of scope on this roadmap
 
-Hyperbolic embeddings, Poincaré disagreement, GatingMLP path weighting, 0.7 confidence thresholds, weight distillation, JIT model patching, background self-healing, merging Graft, indexing chat.
+Hyperbolic embeddings, Poincaré disagreement, GatingMLP path weighting, 0.7 confidence thresholds, weight distillation, JIT model patching, background self-healing, fine-tuning of any kind (Unsloth or otherwise: LoRA/QLoRA adapters, trained routers or gating models, learned residual estimators), merging Graft, indexing chat.
 
 ## Roll-up
 
