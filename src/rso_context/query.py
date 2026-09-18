@@ -193,16 +193,61 @@ def _text_has_affirmative(text: str) -> bool:
     return False
 
 
-def texts_disagree(texts: list[str]) -> bool:
-    """True when retrieved spans for one requirement observably conflict."""
-    for index, left in enumerate(texts):
-        left_neg = _text_has_negation(left)
-        if not left_neg:
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
+_TOPIC_TOKEN = re.compile(r"[a-z0-9][a-z0-9_\-]*")
+_TOPIC_STOPWORDS = frozenset(
+    "a an and are as at be been by can could do does don't for from has have if in into is it its "
+    "may must never no not of on or shall should so than that the their then there these this those "
+    "to use used uses using was were when which while will with without would you your "
+    "approved unapproved required decision".split()
+)
+# A negated sentence and an affirmative sentence conflict only when they are about the same thing.
+_MIN_SHARED_TOPIC_TOKENS = 2
+_MIN_TOPIC_OVERLAP = 0.5
+
+
+def _topic_tokens(sentence: str) -> frozenset[str]:
+    tokens = _TOPIC_TOKEN.findall(sentence.casefold())
+    return frozenset(token for token in tokens if len(token) > 2 and token not in _TOPIC_STOPWORDS)
+
+
+def _polar_sentences(text: str) -> tuple[list[frozenset[str]], list[frozenset[str]]]:
+    negated: list[frozenset[str]] = []
+    affirmed: list[frozenset[str]] = []
+    for sentence in _SENTENCE_SPLIT.split(text):
+        if not sentence.strip():
             continue
-        for other_index, right in enumerate(texts):
-            if other_index == index:
+        if _text_has_negation(sentence):
+            negated.append(_topic_tokens(sentence))
+        elif _text_has_affirmative(sentence):
+            affirmed.append(_topic_tokens(sentence))
+    return negated, affirmed
+
+
+def _same_topic(left: frozenset[str], right: frozenset[str]) -> bool:
+    shared = len(left & right)
+    if shared < _MIN_SHARED_TOPIC_TOKENS:
+        return False
+    return shared / min(len(left), len(right)) >= _MIN_TOPIC_OVERLAP
+
+
+def texts_disagree(texts: list[str], paths: list[str] | None = None) -> bool:
+    """True when retrieved spans for one requirement observably conflict.
+
+    A conflict needs a negated sentence in one span and an affirmative sentence about
+    the same topic in another span. When paths are given, the two spans must come from
+    different source paths.
+    """
+    polar = [_polar_sentences(text) for text in texts]
+    for index, (negated, _) in enumerate(polar):
+        if not negated:
+            continue
+        for other_index, (_, affirmed) in enumerate(polar):
+            if other_index == index or not affirmed:
                 continue
-            if _text_has_affirmative(right):
+            if paths is not None and paths[index] == paths[other_index]:
+                continue
+            if any(_same_topic(left, right) for left in negated for right in affirmed):
                 return True
     return False
 
@@ -802,8 +847,9 @@ def query_context(
                     selected[key]["requirements"].append(requirement_index)
             live_rows = [row for row in rows if not row["stale"]]
             row_texts = [str(row["text"]) for row in live_rows]
-            # Lexical conflict is only a disagreement when two source paths differ.
-            if live_rows and len({str(row["relative_path"]) for row in live_rows}) > 1 and texts_disagree(row_texts):
+            row_paths = [str(row["relative_path"]) for row in live_rows]
+            # Lexical conflict is only a disagreement when the conflicting spans come from different paths.
+            if live_rows and texts_disagree(row_texts, row_paths):
                 status = "disagreement"
                 for key in hit_keys:
                     disagreement_keys.add(key)
