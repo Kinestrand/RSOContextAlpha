@@ -1,6 +1,6 @@
 # Design note: `rso_check`, typed questions over the ledger
 
-Status: proposal, not scheduled. Written 2026-09-17.
+Status: v1 implemented in `src/rso_context/check.py` (September 18). Written 2026-09-17.
 Depends on: sentence-level disagreement detection from
 [PR #3](https://github.com/Kinestrand/RSOContextAlpha/pull/3).
 
@@ -240,6 +240,22 @@ updates. Two to three days.
 - The response schema contains no probability-like field (a guard test, so a
   later change can't add one quietly).
 - Checks never change `trust_state` or write validation rows.
+
+## Implementation notes
+
+Where v1 differs from or adds to the text above:
+
+- Topic words are lightly stemmed (render, renders and renderer match), and
+  question words such as "which" are ignored.
+- Claim checks use a broader negation test than query's conflict check: plain
+  "not", "never", "cannot", "no longer" and "n't" contractions all count.
+- Choice sentences are split at commas, semicolons, colons and "but", so "use
+  Cycles, not Arnold" selects Cycles and excludes Arnold.
+- A caller `pattern` has no timeout (Python's `re` has none); patterns with a
+  nested quantifier are rejected instead.
+- Budget trimming keeps one span per side before dropping witnesses. Below
+  that, the packet falls back to ids and answers only, then drops keys until it
+  fits.
 
 ## Decisions
 

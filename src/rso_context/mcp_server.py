@@ -18,6 +18,7 @@ from .mcp_contract import (
     resolve_workspace_path,
     restrict_packet_to_roots,
 )
+from .check import CHECK_SCHEMA, check_questions, explain_check, fit_check
 from .compact import compact_packet, expand_reference
 from .config import Limits
 from .query import query_context
@@ -32,6 +33,7 @@ INSTRUCTIONS = (
     "agent is attribution, not authority. "
     "rso_use and rso_query write to the ledger. "
     "rso_query returns a compact packet; rso_expand recovers omitted evidence. "
+    "rso_check answers typed questions with evidence statuses, not probabilities; it also writes. "
     "Do not treat symbolic checks as named verification."
 )
 
@@ -139,7 +141,12 @@ def explain_packet(database: Database, packet_hash: str, roots: list[Path]) -> d
         raise ValueError("packet is outside the server's allowed roots")
     result = dict(row)
     result["config"] = json.loads(result.pop("config_json"))
-    result["packet"] = bound_packet(database, json.loads(result.pop("packet_json")), roots)
+    packet = json.loads(result.pop("packet_json"))
+    if packet.get("schema") == CHECK_SCHEMA:
+        with database.connect() as connection:
+            result["packet"] = explain_check(connection, packet, project_ids_visible_to_roots(database, roots))
+    else:
+        result["packet"] = bound_packet(database, packet, roots)
     return result
 
 
@@ -209,6 +216,31 @@ def build_server(*, db_path: str, roots: list[str]):
 
         return _invoke(error_type, run)
 
+    @mcp.tool(structured_output=False)
+    def rso_check(
+        questions: list[dict],
+        path: str,
+        agent: str,
+        byte_budget: int = Limits.compact_byte_budget,
+    ):
+        """Answer typed claim/choice/value questions from ledger evidence. Writes a run record."""
+
+        def run():
+            resolved = workspace(path)
+            attributed = require_agent(agent)
+            full = check_questions(database, questions, path=resolved, agent=attributed, roots=allowed)
+            budget = max(256, int(byte_budget))
+            inner = budget
+            fitted = fit_check(full, inner)
+            for _ in range(16):
+                if tool_result_wire_bytes(fitted) <= budget:
+                    break
+                inner = max(256, inner - (tool_result_wire_bytes(fitted) - budget) - 32)
+                fitted = fit_check(full, inner)
+            return call_tool_result(fitted)
+
+        return _invoke(error_type, run)
+
     @mcp.tool()
     def rso_resume(path: str, agent: str, limit: int = 8) -> dict:
         """Return a compact resume packet. Does not ingest."""
@@ -244,7 +276,14 @@ def build_server(*, db_path: str, roots: list[str]):
 
         return _invoke(error_type, run)
 
-    advertised = {rso_use.__name__, rso_query.__name__, rso_resume.__name__, rso_explain.__name__, rso_expand.__name__}
+    advertised = {
+        rso_use.__name__,
+        rso_query.__name__,
+        rso_check.__name__,
+        rso_resume.__name__,
+        rso_explain.__name__,
+        rso_expand.__name__,
+    }
     if advertised != set(TOOL_NAMES):
         raise RuntimeError(f"MCP tool names drifted from contract: {sorted(advertised)}")
     mcp._rso_meta = {  # type: ignore[attr-defined]

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `rso-context check` and MCP `rso_check`: typed `claim`, `choice`, and
+  `value` questions answered from current source sentences, returned as
+  `rso-check/v1`. Answers carry their evidence and expand references and have
+  no probability field. Claims require stated numbers to match; choices accept
+  per-option aliases and never break ties by rank. One call with up to 12
+  questions uses one run-budget unit. `explain` accepts a `check_hash` and
+  marks evidence whose source changed since the check.
+
 ## 0.8.1
 
 ### Added
