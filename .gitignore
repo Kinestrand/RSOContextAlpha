@@ -1,5 +1,6 @@
 # Derived code maps and local agent coordination
 graft/
+graphify-out/
 .agent-coordination/
 .mcp.json
 .ignore
