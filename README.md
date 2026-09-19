@@ -1,6 +1,6 @@
-# RSO Context Alpha 0.9.1
+# RSO Context Alpha 0.9.2
 
-[Download 0.9.1](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.1) ·
+[Download 0.9.2](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.2) ·
 [Quick-start](QUICKSTART.md) · [Installation](INSTALL.md) ·
 [Manual](MANUAL.md) · [Changes](CHANGELOG.md) · [Verification](VERIFICATION.md)
 
@@ -21,8 +21,8 @@ The files remain the source of truth. RSO doesn't learn from chat, call a model,
 
 ## Start here
 
-Download **RSOContextAlpha-0.9.1.zip** from the
-[0.9.1 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.1) and
+Download **RSOContextAlpha-0.9.2.zip** from the
+[0.9.2 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.2) and
 extract it. The release page includes a SHA-256 checksum. GitHub access is
 required while the repository is private. A release ZIP is tied to a version;
 **Code > Download ZIP** downloads the selected branch's current source instead.
@@ -58,7 +58,14 @@ MCP permissions and searchable context are separate. A launch `--root` permits a
 | Integrate through MCP | Configure bounded launch roots and call `rso_use` before querying |
 | Inspect the ledger locally | Run the optional read-only localhost viewer with `admin` |
 
-## What's new in 0.9.1
+## What's new in 0.9.2
+
+- Evaluating, testing, comparing or trying an option is no longer read as
+  choosing it. "We evaluated the Arnold renderer for finals" now returns
+  `unknown` instead of selecting Arnold, while "we evaluated Arnold and chose
+  Cycles" selects Cycles. The same rule applies to claims and values.
+
+## What was new in 0.9.1
 
 - Sentences hard-wrapped across lines are read as one sentence, so claims in
   documentation wrapped at 80 columns are no longer missed. List items and
@@ -120,13 +127,13 @@ python -B install.py
 & "$env:USERPROFILE\.local\bin\rso-context.cmd" doctor
 ```
 
-The version should be `0.9.1`; `doctor` should report `ready: true`. The installer
+The version should be `0.9.2`; `doctor` should report `ready: true`. The installer
 prints the command path and does not change PATH. Follow the
 [quick-start demo](QUICKSTART.md) for a complete example using a disposable
 project and ledger. [INSTALL.md](INSTALL.md) covers Linux, macOS, and custom paths;
 automated Windows, Ubuntu, and macOS checks run on every change (see VERIFICATION.md).
 
-The 0.9.1 ZIP includes the Linux path-isolation fixes and Git Bash launcher
+The 0.9.2 ZIP includes the Linux path-isolation fixes and Git Bash launcher
 support. For Linux, follow
 [the Linux installation instructions](INSTALL.md#linux). See
 [VERIFICATION.md](VERIFICATION.md) for recorded Debian and Ubuntu checks.
