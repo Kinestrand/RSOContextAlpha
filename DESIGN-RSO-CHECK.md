@@ -260,6 +260,10 @@ Where v1 differs from or adds to the text above:
   "proposed", "TBD", "should we", or a question mark) are not evidence for or
   against anything.
 - Negation uses the one rule in `query.py`, shared with the conflict detector.
+- A sentence or clause that records an experiment ("evaluated", "tested",
+  "compared", "tried", "benchmarked") without a decision word ("chose", "use",
+  "decided", "must") is not evidence. Choice sentences also split just before a
+  decision verb joined by "and" or "then", so each half is judged on its own.
 - Budget trimming keeps one span per side before dropping witnesses. Below
   that, the packet falls back to ids and answers only, then drops keys until it
   fits.
