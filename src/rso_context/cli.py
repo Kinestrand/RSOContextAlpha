@@ -389,6 +389,26 @@ def command_explain(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_jev_fuse(args: argparse.Namespace) -> int:
+    from .jev_fuse import ENABLED_ENV, KEY_ENV, run_fuse
+
+    raw = sys.stdin.read() if args.check_file in (None, "-") else Path(args.check_file).read_text(encoding="utf-8")
+    document = json.loads(raw)
+    result = run_fuse(
+        args.question,
+        document,
+        args.solution,
+        enabled=args.enabled or None,
+        timeout=args.timeout,
+    )
+    if result.next == "skipped_no_key":
+        print(f"jev-fuse: set {KEY_ENV} in your environment or a gitignored .env to enable it.", file=sys.stderr)
+    elif result.next == "skipped_disabled":
+        print(f"jev-fuse: off; set {ENABLED_ENV}=1 or pass --enabled.", file=sys.stderr)
+    _print(result.to_dict())
+    return 0
+
+
 def command_check(args: argparse.Namespace) -> int:
     database = _database(args)
     if args.questions == "-":
@@ -671,6 +691,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Trim the result to this many ASCII JSON bytes (default: untrimmed)",
     )
     check_parser.set_defaults(function=command_check)
+
+    fuse_parser = subparsers.add_parser(
+        "jev-fuse",
+        help="Optional: route a dirty check through TypeSafe Jev (off by default, your own key)",
+    )
+    fuse_parser.add_argument("--question", required=True, help="The original question the check answered")
+    fuse_parser.add_argument("--solution", help="Optional candidate solution to test against the evidence")
+    fuse_parser.add_argument("--check-file", help="rso-check/v1 JSON file, or - for stdin (default: stdin)")
+    fuse_parser.add_argument("--enabled", action="store_true", help="Run even without RSO_JEV_ENABLED=1")
+    fuse_parser.add_argument("--timeout", type=float, default=10.0)
+    fuse_parser.set_defaults(function=command_jev_fuse)
 
     packet_parser = subparsers.add_parser("explain", help="Explain a saved context packet or check")
     packet_parser.add_argument("packet_hash")

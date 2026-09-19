@@ -82,6 +82,8 @@ rso_use path=<bounded-workspace> agent=<current-agent-name>
 rso_query query="<actual user task>" path=<bounded-workspace> agent=<current-agent-name>
 ```
 
+If the user has configured the optional Jev fuse, run `check` first and pass only a dirty result (`unknown`, `disagreement`, `contradicted`) to `rso-context jev-fuse`. Treat its `next` as a routing suggestion, never as verification, and never route a contradicted answer to accept.
+
 For a narrow decision with a known answer shape (is X true, which of these options, what value does the spec state), call `rso_check` with typed `claim`, `choice`, or `value` questions instead of reading a whole packet. Branch on `answer`; treat `supported`/`selected`/`found` as evidence, not verification, and stop to ask on `disagreement`.
 
 MCP `rso_query` returns `rso-mcp-packet/v1` (compact) as text-only tool content so the JSON-RPC tools/call result stays within `byte_budget` (including a 4000-byte request). Compact packets stay within the requested byte budget, including fallback `insufficient_budget` packets. CLI `query` stays `rso-context-packet/v2` unless `--compact` is passed. Recover omitted spans with `rso_expand`, not by guessing. MCP query and explain omit sources whose files sit outside launch `--root` folders.

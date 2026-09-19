@@ -57,6 +57,7 @@ MCP permissions and searchable context are separate. A launch `--root` permits a
 | Separate suggestions from approval | Use `propose`; reserve validation for a named, authorized decision |
 | Integrate through MCP | Configure bounded launch roots and call `rso_use` before querying |
 | Inspect the ledger locally | Run the optional read-only localhost viewer with `admin` |
+| Route a dirty check (optional) | Pipe `check` into `jev-fuse` with your own Experiential key; off by default |
 
 ## What's new in 0.9.2
 

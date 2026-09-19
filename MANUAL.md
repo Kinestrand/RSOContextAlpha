@@ -250,6 +250,7 @@ and `--agent` values in repeatable agent workflows.
 | `resume` | Read current project summary without ingestion; `--path`, `--agent` |
 | `query` | Retrieve evidence for a positional question; `--path`, `--agent`, `--limit`, `--token-budget`, `--no-cache` |
 | `check` | Answer typed claim/choice/value questions; `--questions <file or ->`, `--path`, `--agent`, optional `--byte-budget` |
+| `jev-fuse` | Optional: route a dirty check through Jev; `--question`, optional `--solution`, `--check-file`, `--enabled`. Off by default; needs your own `EXPERIENTIAL_API_KEY` |
 | `explain` | Read a saved packet or check by positional hash |
 | `explain-project` | Explain project matching for `--path` |
 | `propose` | File a positional suggestion; `--agent`, `--path` |

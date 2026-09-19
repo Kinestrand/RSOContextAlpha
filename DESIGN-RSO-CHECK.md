@@ -307,6 +307,13 @@ What stays possible:
   `benchmarks/`, would show how often the topic-overlap rule misses or
   over-fires, and would let its thresholds and stopwords be tuned. It is a test
   fixture for deterministic rules, not training data for RSO.
+- **An optional downstream fuse ships with RSO.** `rso-context jev-fuse`
+  (`src/rso_context/jev_fuse.py`) is that caller-side model, packaged for
+  convenience: off by default, keyed by the user's own `EXPERIENTIAL_API_KEY`,
+  and run only on dirty checks. It returns a separate `rso-jev-fuse/v1`
+  document with a routing suggestion (`accept`, `other_solver`, `subdivide`,
+  `ask_user`). Jev never changes a check status, and the routing policy is code,
+  not the model: a live contradiction is never routed to `accept`.
 - **Named validation stays the way to settle a conflict.** When a check
   returns `disagreement`, the fix is still a person or deterministic validator
   recording `verified`, `disputed` or `superseded`, or someone editing the
