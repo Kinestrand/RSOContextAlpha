@@ -1,5 +1,20 @@
 # RSO verification status
 
+## 0.9.2, September 19
+
+Release checks for 0.9.2 on Windows 11 with Python 3.12.5: 145 regression
+tests passed with one POSIX-only test skipped, including new tests for an
+evaluated option that is not chosen, evaluate-then-choose, testing followed
+by an explicit decision, and experiments not counting for claims or values.
+GitHub Actions runs the suite on Windows, Ubuntu, and macOS with Python 3.11
+and 3.12 for the release commit.
+
+Twelve sample questions over this repository, run against the same corpus
+with 0.9.1 and with this change, gave identical answers and the same median
+time (124 and 125 ms). The 0.9.1 results quoted in the release notes were
+confirmed by running the released code. The rule is word-based: "we tried to
+use Arnold" still counts as a decision because it contains "use".
+
 ## 0.9.1, September 18
 
 Release checks for 0.9.1 on Windows 11 with Python 3.12.5: 141 regression
