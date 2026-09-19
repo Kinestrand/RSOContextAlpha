@@ -148,6 +148,17 @@ rso-context mcp --remove --client codex
 
 Isolated checks must pass `--config <file>`. Do not point tests at a live user config. Setup and removal rewrite only the `rso-context` tables; other `[mcp_servers.*]` headers, including those with trailing comments, stay in place. MCP query and explain omit sources outside the launch `--root` folders. `rso_query` sends a text-only tool result so the JSON-RPC `tools/call` payload stays within `byte_budget`. Other clients can launch the stdio command printed by `doctor` under `mcp_clients.stdio`; that is not a tested compatibility claim. Tool discovery is not automatic use: still call `rso_use` then `rso_query` with the actual task.
 
+## Optional Jev fuse
+
+`rso-context jev-fuse` is optional and off by default; nothing else needs it.
+To try it, get your own Experiential Labs key, then either set it in your shell
+(`export EXPERIENTIAL_API_KEY=...` on Linux/macOS; `setx EXPERIENTIAL_API_KEY "..."`
+on Windows, then restart the terminal) or put `EXPERIENTIAL_API_KEY=...` in a
+`.env` file in the checkout (a source checkout includes `.env.example` to copy).
+Turn the fuse on with `RSO_JEV_ENABLED=1` or `--enabled`, then pipe a check into it:
+`rso-context check --questions q.json --path <folder> --agent <name> | rso-context jev-fuse --question "<question>"`.
+Never commit `.env`; it is gitignored and never ingested.
+
 ## Register permitted projects
 
 Before using MCP, distinguish permission from registration: launch `--root` values permit access, but do not ingest files. Call `rso_use` with the permitted project path and current agent name, then `rso_query`. A second permitted folder needs its own `rso_use`. An unregistered-project error calls for registration and ingestion, not broader filesystem permissions. `rso_resume` alone does not ingest.

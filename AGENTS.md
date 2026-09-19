@@ -27,7 +27,7 @@ Agents must register only a bounded project folder.
 Do not register a user profile, Documents, Downloads, or an entire OneDrive root.
 Never edit `context.sqlite3` directly. Use the CLI.
 Secrets must never be committed or ingested. Use placeholders.
-Do not use provider APIs, embeddings, screen capture, keystrokes, or browser history.
+Do not use provider APIs, embeddings, screen capture, keystrokes, or browser history. The one exception is the optional Jev fuse described under Decisions.
 
 ## Indexing
 RSO does not learn from chat. It re-reads files.
@@ -48,6 +48,7 @@ Decision: verified, disputed, or superseded requires a named validator or the us
 Decision: RSO and Graft stay separate engines. Mixed questions must be source-labeled.
 The approved stack is local SQLite/FTS5 plus the `rso-context` CLI. Optional local stdio MCP (`rso-context mcp`) uses the same core functions, project identity, and ledger. Do not add HTTP hosting, a daemon, or a cloud memory provider without a new decision in this file.
 Decision: cross-project retrieval uses `search_order` (active project, domain, shared). Do not add a concept_id registry or store concept bodies in sqlite. Shared rules live as plates. A span found in another project is observed, not inherited as verified. Override by copying the plate into the project (new source). Studio and class work do not share one concept space.
+Decision: an optional TypeSafe Jev caller (`rso-context jev-fuse`, `src/rso_context/jev_fuse.py`) is allowed only as a downstream caller of `check` output. It is off by default, reads the user's own `EXPERIENTIAL_API_KEY` from the environment or a gitignored `.env`, and calls only the Experiential gateway. It is never required to build, test, install, or run RSO. It never changes check statuses, never writes the ledger or trust state, and its key is never committed, ingested, logged, or returned.
 Decision: the shareable install is a PATH command plus `%USERPROFILE%\.local\RSOContextAlpha`. Do not keep the program in AppData\Local. The index stays at `%USERPROFILE%\.rso-context`. Each person gets their own index.
 Required: an agent told to install and use RSO must perform the install itself. Do not require the user to run PowerShell or ingest by hand.
 

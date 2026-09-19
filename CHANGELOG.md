@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Optional `rso-context jev-fuse`: routes a dirty `rso-check/v1` result
+  (`unknown`, `disagreement`, `contradicted`, or a number mismatch) through
+  TypeSafe Jev on the Experiential gateway and returns `rso-jev-fuse/v1` with a
+  suggested next step. Off by default; enable with `RSO_JEV_ENABLED=1` or
+  `--enabled`, and supply your own `EXPERIENTIAL_API_KEY`. Clean checks, missing
+  keys, and disabled runs make no network call. It never changes check output
+  and never writes the ledger. Core RSO needs no key, package, or network.
+
 ## 0.9.2
 
 ### Fixed
