@@ -677,21 +677,33 @@ def query_context(
     token_budget: int = 4_000,
     use_cache: bool = True,
     run_budget: int | None = None,
+    replay_run_info: dict[str, int] | None = None,
 ) -> dict[str, object]:
     """Return a deterministic context packet for an already-registered project.
 
     Query does not auto-register a workspace. If ``path`` / cwd has no project,
     this raises ValueError (same as resume). Run ingest first.
+
+    ``replay_run_info`` re-executes a recorded run without touching the ledger:
+    the budget is neither read nor decremented, the cache is bypassed, and no
+    ``runs`` row is written. The supplied run info is placed in the packet so
+    ``packet_hash`` stays comparable with the recorded packet.
     """
     database.initialize()
     started = time.perf_counter()
     project = _resolve_project(database, path=path, project_id=project_id, agent=agent)
     project_id_value = str(project["id"])
-    with database.transaction() as budget_connection:
-        if run_budget is not None:
-            set_budget(budget_connection, project_id_value, agent, int(run_budget))
-        budget = consume(budget_connection, project_id_value, agent, n=1)
-    run_info = {"remaining": int(budget["remaining"]), "initial": int(budget["initial"])}
+    if replay_run_info is None:
+        with database.transaction() as budget_connection:
+            if run_budget is not None:
+                set_budget(budget_connection, project_id_value, agent, int(run_budget))
+            budget = consume(budget_connection, project_id_value, agent, n=1)
+        run_info = {"remaining": int(budget["remaining"]), "initial": int(budget["initial"])}
+    else:
+        run_info = {
+            "remaining": int(replay_run_info["remaining"]),
+            "initial": int(replay_run_info["initial"]),
+        }
     requirements = split_requirements(query, limit=MAX_LEAVES)
     config = {
         "algorithm": "fts5-bounded-requirements-v4-live-sources",
@@ -722,7 +734,7 @@ def query_context(
                 }
             ).encode("utf-8")
         ).hexdigest()
-        if use_cache:
+        if use_cache and replay_run_info is None:
             cached = connection.execute(
                 "SELECT packet_json FROM cache WHERE cache_key=?", (cache_key,)
             ).fetchone()
@@ -948,6 +960,9 @@ def query_context(
     # checks are attached after packet_hash so they are not hashed
     apply_solvers(packet)
     attach_empty_result(packet)
+    if replay_run_info is not None:
+        # Replay is read-only: no cache write, no runs row, no budget change.
+        return packet
     # Freshness dependencies are cache metadata, not duplicated in output/run packets.
     packet_json = json_text({
         "packet": packet,

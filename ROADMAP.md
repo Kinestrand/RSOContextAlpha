@@ -6,6 +6,15 @@ The September 9 planning pass is in [BUILD-0.8.0-PLAN.md](BUILD-0.8.0-PLAN.md). 
 
 0.9.2 (September 19) stops reading evaluated or tested options as chosen. 0.9.1 (September 18) reads hard-wrapped sentences, ignores recorded questions as evidence, and gives the conflict detector and `rso_check` one negation rule. 0.9.0 (September 18) adds `rso_check`, typed claim/choice/value questions answered from ledger evidence with no probabilities, and keeps out-of-root projects out of MCP check results. 0.8.1 (September 18) fixed false disagreements and empty compact packets, adds Gemini CLI and Antigravity MCP setup, and packages the post-0.8.0 Linux and launcher fixes. See CHANGELOG.md.
 
+`replay` (unreleased) re-runs recorded queries and checks against the current
+build and reports packet drift, separating algorithmic change from corpus
+movement. It reads the `runs` table the ledger already keeps and writes nothing.
+The idea is borrowed from Dream-RSI (Zheng et al., 2026), which treats completed
+discovery history as a replay simulator; the exploration-policy search around it
+needs an LLM in the loop and a scored candidate space, so it stays out. An
+offline parameter sweep over the same recorded runs lives in
+`benchmarks/budget_sweep.py` and is advisory only.
+
 `rso_check` (CLI `check`) ships in 0.9.0. [DESIGN-RSO-CHECK.md](DESIGN-RSO-CHECK.md) has the rules and the v1 implementation notes.
 
 The sections below preserve the earlier 0.4-0.7 roadmap and historical estimates.

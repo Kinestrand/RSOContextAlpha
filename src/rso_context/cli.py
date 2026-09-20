@@ -28,6 +28,7 @@ from .ingest import ingest_project
 from .pointers import compact_pointers
 from .check import CHECK_SCHEMA, check_questions, explain_check, fit_check
 from .compact import compact_packet
+from .replay import replay_runs
 from .query import query_context
 from .resume import resume_context
 from .run_budget import get_or_start, set_budget
@@ -409,6 +410,21 @@ def command_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_replay(args: argparse.Namespace) -> int:
+    database = _database(args)
+    result = replay_runs(
+        database,
+        path=args.path,
+        project_id=args.project_id,
+        agent=args.agent,
+        limit=args.limit,
+        include_historical=args.include_historical,
+    )
+    _print(result)
+    # Corpus churn is not a regression; only algorithmic drift fails the command.
+    return 1 if result["counts"]["drifted_algorithmic"] else 0
+
+
 def command_doctor(args: argparse.Namespace) -> int:
     from .mcp_runtime import runtime_status
     from .mcp_setup import inspect_clients
@@ -688,6 +704,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     admin_parser.add_argument("--port", type=int, default=7432)
     admin_parser.set_defaults(function=command_admin)
+
+    replay_parser = subparsers.add_parser(
+        "replay",
+        help="Re-run recorded runs against the current build and report packet drift",
+    )
+    replay_parser.add_argument("--path", default=None)
+    replay_parser.add_argument("--project-id", default=None)
+    replay_parser.add_argument("--agent", default="replay")
+    replay_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Replay only the newest N recorded runs",
+    )
+    replay_parser.add_argument(
+        "--include-historical",
+        action="store_true",
+        help="Also replay runs recorded at an older corpus version",
+    )
+    replay_parser.set_defaults(function=command_replay)
 
     doctor_parser = subparsers.add_parser("doctor", help="Check local runtime support")
     doctor_parser.set_defaults(function=command_doctor)
