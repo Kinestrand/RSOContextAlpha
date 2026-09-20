@@ -251,6 +251,7 @@ and `--agent` values in repeatable agent workflows.
 | `query` | Retrieve evidence for a positional question; `--path`, `--agent`, `--limit`, `--token-budget`, `--no-cache` |
 | `check` | Answer typed claim/choice/value questions; `--questions <file or ->`, `--path`, `--agent`, optional `--byte-budget` |
 | `explain` | Read a saved packet or check by positional hash |
+| `replay` | Re-run recorded runs against the current build and report packet drift; `--path`, optional `--limit`, `--include-historical` |
 | `explain-project` | Explain project matching for `--path` |
 | `propose` | File a positional suggestion; `--agent`, `--path` |
 | `pending` | List claims awaiting named validation; optional `--path` |
@@ -298,6 +299,37 @@ not verification. A check never changes trust state. One call with up to 12
 questions uses one unit of run budget. `explain <check_hash>` returns the saved
 check and marks evidence whose source changed since. See
 [DESIGN-RSO-CHECK.md](DESIGN-RSO-CHECK.md) for the rules.
+
+### Replaying recorded runs
+
+Every `query` and `check` is stored with the packet it returned and the corpus
+version it was read from. `replay` re-executes those runs against the code you
+have now and reports which packets came back different. It is the regression net
+for changes to parsing, chunking, and the check rules, where a fix for one
+sentence shape can quietly move an unrelated answer.
+
+```bash
+rso-context replay --path <bounded-project-folder>
+```
+
+Replay is read-only. It consumes no run budget, writes no `runs` row, and
+bypasses the cache, so running it repeatedly costs nothing but time.
+
+A recorded run only reproduces while the files behind it are unchanged, so runs
+at an older corpus version are skipped and counted as `stale_corpus_skipped`.
+`--include-historical` replays them anyway and marks each difference
+`corpus_moved`, meaning the corpus moved rather than the code.
+
+Retrieval also reads live files, so a file edited since the run was recorded
+changes the packet without the corpus version moving at all. Replay checks each
+recorded evidence span against the hash of its file on disk and marks those
+differences `sources_changed`, listing the files in `changed_sources`. What is
+left is marked `algorithmic`: the inputs are the same and the output moved, so
+the code did. The command exits non-zero only for those, so neither corpus churn
+nor an unsaved edit fails a build.
+
+Note that a recorded validation also bumps the corpus version, so a run can
+become unreproducible without any file changing.
 
 ## 11. MCP tool reference
 

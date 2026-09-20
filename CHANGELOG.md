@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `rso-context replay` re-runs the queries and checks already recorded in the
+  ledger against the current build and reports which packets changed. Semantic
+  parsing changes are hard to test by hand because one rule can move answers far
+  from the sentence it was written for; the stored runs are a corpus that
+  already exists. Replay writes nothing: no run budget is consumed, no `runs`
+  row is added, and the cache is bypassed. Runs recorded at an older corpus
+  version are skipped unless `--include-historical` is given, and differences
+  there are labelled `corpus_moved`. Because retrieval reads live files, a file
+  edited since the run was recorded also changes the packet without the corpus
+  version moving; replay checks each recorded span against its file hash and
+  labels those `sources_changed`. Only drift left over once both are ruled out
+  counts as a regression and fails the command.
+- `benchmarks/budget_sweep.py` sweeps `--limit` and `--token-budget` over
+  recorded runs and prints a coverage-against-cost table. It is advisory, and a
+  sweep over a small corpus will recommend whatever fits that corpus.
+
 ## 0.9.2
 
 ### Fixed

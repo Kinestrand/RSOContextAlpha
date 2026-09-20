@@ -541,8 +541,13 @@ def check_questions(
     agent: str = "unknown",
     limit: int = Limits.query_limit,
     roots: list[Path] | None = None,
+    replay: bool = False,
 ) -> dict[str, object]:
     """Answer typed questions from live ledger evidence. Consumes one run-budget unit per call.
+
+    With ``replay`` the call is read-only: the budget is read but not consumed
+    and no ``runs`` row is written. ``check_hash`` excludes the run block, so it
+    stays comparable with the recorded result.
 
     Returns the full rso-check/v1 result (no byte budget applied); use fit_check to trim it.
     When roots are given, sources outside them are ignored before any answer is computed.
@@ -552,8 +557,20 @@ def check_questions(
     started = time.perf_counter()
     project = resolve_existing_project(database, path=path, project_id=project_id)
     project_id_value = str(project["id"])
-    with database.transaction() as connection:
-        budget = consume(connection, project_id_value, agent, n=1)
+    if replay:
+        with database.connect() as connection:
+            row = connection.execute(
+                "SELECT remaining, initial FROM run_budgets WHERE project_id=? AND agent=?",
+                (project_id_value, agent),
+            ).fetchone()
+        budget = (
+            {"remaining": int(row["remaining"]), "initial": int(row["initial"])}
+            if row is not None
+            else {"remaining": 0, "initial": 0}
+        )
+    else:
+        with database.transaction() as connection:
+            budget = consume(connection, project_id_value, agent, n=1)
     config = {"algorithm": "rso-check-lexical-v1", "limit_per_question": int(limit)}
     answers: list[dict[str, object]] = []
     with database.connect() as connection:
@@ -609,6 +626,9 @@ def check_questions(
         "run": {"initial": int(budget["initial"]), "remaining": int(budget["remaining"])},
         "check_hash": check_hash,
     }
+    if replay:
+        # Replay is read-only: no runs row, no budget change.
+        return result
     with database.transaction() as connection:
         connection.execute(
             "INSERT INTO runs(id,project_id,query_text,corpus_version,config_json,packet_json,"
