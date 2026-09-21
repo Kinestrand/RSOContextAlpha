@@ -22,6 +22,8 @@ Extract the release ZIP before installing. The installer copies only files liste
 
 Python **3.11 or newer**, Git on PATH, and Python's standard-library SQLite with FTS5 are required. The installed Windows command launches Python directly. PowerShell is needed only for the optional `.ps1` launcher and PowerShell examples. The core program needs no pip packages, API key, model account, or network service. The installer checks Python and Git; `doctor` checks SQLite afterward.
 
+FTS5 is a compile-time option in SQLite, not a separate program to install, so there is nothing to add to a Python that already has it. When `doctor` reports `"fts5": false`, read the accompanying `fts5_error` and switch interpreters rather than trying to patch the current one. The python.org installers for Windows and macOS ship SQLite with FTS5 enabled, as do the Debian and Ubuntu `python3` packages and Homebrew's `python@3.12`. A Python built from source picks up the option only when a SQLite with FTS5 was present at build time; on Debian and Ubuntu that means installing `libsqlite3-dev` first and rebuilding. The Xcode Command Line Tools Python on macOS is the other common source of a failing check, and the fix there is to install a current python.org or Homebrew build and rerun `install.py` against it.
+
 The POSIX launcher is supplied for Linux and macOS. Linux CLI + MCP runtime was verified on Debian (see VERIFICATION.md). Current-branch automated macOS checks also passed; see [VERIFICATION.md](VERIFICATION.md) for the tested commit and release boundary.
 
 ## Windows
