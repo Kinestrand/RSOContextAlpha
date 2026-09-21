@@ -211,6 +211,73 @@ anyio.run(main)
             self.assertTrue(payload["protocol_version"])
             self.assertEqual(payload["server_name"], "rso-context")
 
+    def test_stdio_initialize_survives_a_spawn_env_without_a_home(self):
+        """A client that replaces rather than augments the child env must still get a handshake.
+
+        OpenCode spawns a stdio server with only the variables in its own config
+        block. With no USERPROFILE/HOMEPATH, Path.home() raises RuntimeError on
+        Windows; the server died before answering and the client reported it as
+        "-32001 Request timed out" rather than as a crash. SystemRoot is kept
+        because winsock cannot load without it, which is environmental and not
+        something the adapter can fix.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "bounded project"
+            workspace.mkdir()
+            (workspace / "AGENTS.md").write_text("Decision: widgets must stay blue.\n", encoding="utf-8")
+            env = {
+                "PYTHONPATH": str(ROOT / "src"),
+                "RSO_MCP_IN_RUNTIME": "1",
+                "RSO_CONTEXT_HOME": str(Path(tmp) / "home"),
+            }
+            for name in ("SystemRoot", "SYSTEMROOT", "PATH"):
+                value = os.environ.get(name)
+                if value:
+                    env[name] = value
+            for name in ("HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH"):
+                self.assertNotIn(name, env)
+            request = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "homeless-spawn-probe", "version": "1"},
+                },
+            }
+            process = subprocess.Popen(
+                [
+                    str(self.python),
+                    "-X",
+                    "utf8",
+                    "-m",
+                    "rso_context",
+                    "mcp",
+                    "--db",
+                    str(Path(tmp) / "context.sqlite3"),
+                    "--root",
+                    str(workspace),
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                env=env,
+                cwd=str(ROOT),
+            )
+            try:
+                stdout, stderr = process.communicate(json.dumps(request) + "\n", timeout=90)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                self.fail("server never answered initialize under a home-less spawn env")
+            lines = [line for line in stdout.splitlines() if line.strip()]
+            self.assertTrue(lines, f"no stdout frame; stderr was: {stderr}")
+            payload = json.loads(lines[0])
+            self.assertNotIn("error", payload, f"initialize failed: {stderr}")
+            self.assertEqual(payload["result"]["serverInfo"]["name"], "rso-context")
+
     def test_query_wire_result_stays_within_byte_budget(self):
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp) / "bounded"
