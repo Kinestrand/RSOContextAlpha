@@ -96,7 +96,11 @@ def tool_names() -> tuple[str, ...]:
 
 def _home_paths() -> list[Path]:
     homes: list[Path] = []
-    for candidate in (Path.home(),):
+    try:
+        candidates = (Path.home(),)
+    except RuntimeError:
+        return homes
+    for candidate in candidates:
         try:
             homes.append(candidate.expanduser().resolve())
         except OSError:
