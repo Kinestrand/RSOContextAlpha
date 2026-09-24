@@ -8,12 +8,13 @@ from pathlib import Path
 import re
 import sys
 
+from .config import default_home
 from .mcp_contract import bind_roots
 from .mcp_runtime import program_root, runtime_python
 
 
 SERVER_NAME = "rso-context"
-CLIENTS = ("codex", "claude-code", "gemini", "antigravity")
+CLIENTS = ("codex", "claude-code", "gemini", "antigravity", "opencode")
 JSON_CLIENTS = ("claude-code", "gemini", "antigravity")
 GOOGLE_CLIENTS = ("gemini", "antigravity")
 
@@ -22,13 +23,37 @@ def mcp_launch(root: Path) -> dict[str, object]:
     """Stdio launch spec shared by Codex, Claude Code, and the documented generic host."""
     python = runtime_python() or Path(sys.executable)
     src = program_root() / "src"
+    env = {
+        "PYTHONPATH": str(src),
+        "RSO_MCP_IN_RUNTIME": "1",
+        "RSO_CONTEXT_HOME": str(default_home()),
+    }
+    env.update(_spawn_env_passthrough())
     return {
         "command": str(python),
         "args": ["-X", "utf8", "-m", "rso_context", "mcp", "--root", str(root.resolve())],
-        "env": {
-            "PYTHONPATH": str(src),
-            "RSO_MCP_IN_RUNTIME": "1",
-        },
+        "env": env,
+    }
+
+
+def _spawn_env_passthrough() -> dict[str, str]:
+    """Variables a host must forward for the server to start at all.
+
+    Some hosts replace the child environment with the config's env block instead
+    of adding to it. On Windows a child without SystemRoot cannot load winsock,
+    so the server dies before the handshake and the host reports a request
+    timeout rather than a crash. RSO_CONTEXT_HOME above covers the other half by
+    removing the need for a home directory.
+    """
+    if os.name != "nt":
+        return {}
+    system_root = os.environ.get("SystemRoot") or os.environ.get("SYSTEMROOT")
+    if not system_root:
+        return {}
+    root = Path(system_root)
+    return {
+        "SystemRoot": str(root),
+        "PATH": os.pathsep.join([str(root / "System32"), str(root)]),
     }
 
 
@@ -63,6 +88,80 @@ def default_antigravity_config() -> Path:
     if override:
         return Path(override).expanduser()
     return Path.home() / ".gemini" / "config" / "mcp_config.json"
+
+
+def default_opencode_config() -> Path:
+    """OpenCode global config. XDG on every platform, including Windows."""
+    override = os.environ.get("RSO_MCP_OPENCODE_CONFIG")
+    if override:
+        return Path(override).expanduser()
+    base = os.environ.get("XDG_CONFIG_HOME")
+    root = Path(base).expanduser() if base else Path.home() / ".config"
+    jsonc = root / "opencode" / "opencode.jsonc"
+    if jsonc.is_file():
+        return jsonc
+    return root / "opencode" / "opencode.json"
+
+
+def _write_opencode(path: Path, launch: dict[str, object] | None) -> dict[str, object]:
+    """OpenCode keys servers under "mcp" with a command list, not "mcpServers"."""
+    if path.is_file():
+        data = json.loads(_strip_jsonc_comments(path.read_text(encoding="utf-8")))
+        if not isinstance(data, dict):
+            raise ValueError("MCP host config must be a JSON object")
+    else:
+        data = {}
+    servers = data.get("mcp")
+    if servers is None:
+        servers = {}
+        data["mcp"] = servers
+    if not isinstance(servers, dict):
+        raise ValueError("mcp must be a JSON object")
+    if launch is None:
+        servers.pop(SERVER_NAME, None)
+    else:
+        servers[SERVER_NAME] = {
+            "type": "local",
+            "enabled": True,
+            "command": [launch["command"], *list(launch["args"])],
+            "environment": dict(launch["env"]),
+        }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return {"format": "json", "path": str(path), "wrote": launch is not None}
+
+
+def _strip_jsonc_comments(text: str) -> str:
+    """Drop // and /* */ comments outside strings so a .jsonc file parses."""
+    out: list[str] = []
+    index = 0
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if char == '"':
+            end = index + 1
+            while end < length:
+                if text[end] == "\\":
+                    end += 2
+                    continue
+                if text[end] == '"':
+                    end += 1
+                    break
+                end += 1
+            out.append(text[index:end])
+            index = end
+            continue
+        if text.startswith("//", index):
+            end = text.find("\n", index)
+            index = length if end == -1 else end
+            continue
+        if text.startswith("/*", index):
+            end = text.find("*/", index + 2)
+            index = length if end == -1 else end + 2
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out)
 
 
 def _toml_string(value: str) -> str:
@@ -159,6 +258,9 @@ def setup_client(client: str, root: str | Path, *, config: str | Path | None = N
     if client == "codex":
         path = Path(config) if config else default_codex_config()
         written = _write_codex(path, launch)
+    elif client == "opencode":
+        path = Path(config) if config else default_opencode_config()
+        written = _write_opencode(path, launch)
     elif client in GOOGLE_CLIENTS:
         default = default_gemini_config if client == "gemini" else default_antigravity_config
         path = Path(config) if config else default()
@@ -185,6 +287,9 @@ def remove_client(client: str, *, config: str | Path | None = None) -> dict[str,
     if client == "codex":
         path = Path(config) if config else default_codex_config()
         written = _write_codex(path, None)
+    elif client == "opencode":
+        path = Path(config) if config else default_opencode_config()
+        written = _write_opencode(path, None)
     elif client in GOOGLE_CLIENTS:
         default = default_gemini_config if client == "gemini" else default_antigravity_config
         path = Path(config) if config else default()

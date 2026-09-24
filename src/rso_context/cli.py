@@ -465,9 +465,9 @@ def command_admin(args: argparse.Namespace) -> int:
     return 0
 
 
-def _mcp_argv(args: argparse.Namespace) -> list[str]:
+def _mcp_argv(args: argparse.Namespace, roots: list[str] | None = None) -> list[str]:
     argv = ["--db", str(args.db), "mcp"]
-    for root in args.roots or []:
+    for root in (roots if roots is not None else (args.roots or [])):
         argv.extend(["--root", str(root)])
     return argv
 
@@ -482,25 +482,27 @@ def command_mcp(args: argparse.Namespace) -> int:
         _print(runtime_status())
         return 0
     if args.setup or args.remove:
-        from .mcp_setup import remove_client, setup_client
+        from .mcp_setup import CLIENTS as SETUP_CLIENTS, remove_client, setup_client
 
         if not args.client:
-            raise ValueError("mcp --setup/--remove requires --client codex, claude-code, gemini, or antigravity")
+            raise ValueError(
+                "mcp --setup/--remove requires --client "
+                + ", ".join(SETUP_CLIENTS)
+            )
         if args.remove:
             _print(remove_client(args.client, config=args.config))
             return 0
-        roots = [str(path) for path in (args.roots or [])]
-        if not roots:
-            raise ValueError("mcp --setup requires --root")
+        from .mcp_contract import resolve_launch_roots
+
+        roots = [str(path) for path in resolve_launch_roots(args.roots)]
         _print(setup_client(args.client, roots[0], config=args.config))
         return 0
-    roots = [str(path) for path in (args.roots or [])]
-    from .mcp_contract import bind_roots
+    from .mcp_contract import resolve_launch_roots
 
-    bind_roots(roots)
+    roots = [str(path) for path in resolve_launch_roots(args.roots)]
     status = current_sdk_status()
     if not status["usable"] and os.environ.get("RSO_MCP_IN_RUNTIME") != "1":
-        return serve_via_runtime(_mcp_argv(args))
+        return serve_via_runtime(_mcp_argv(args, roots))
     from .mcp_server import serve_stdio
 
     serve_stdio(db_path=str(args.db), roots=roots)

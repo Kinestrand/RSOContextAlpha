@@ -45,6 +45,7 @@ Queries must use current active sources only. Historical versions remain stored.
 Decision: observed means the current source contains the statement. Retrieval frequency and agent agreement are not validation.
 Decision: proposed means an agent filed a solve that is not on the plate. Do not treat proposed as observed or verified. Promotion still needs a named validator or the user.
 Decision: verified, disputed, or superseded requires a named validator or the user.
+Decision: a launch with no `--root` binds the host's working directory, so one configured MCP entry serves every project without a per-folder config edit. This is a launch-time bound, not run-time widening: the bounded-root refusal still applies to that directory, and no tool grants access to a folder the launch did not.
 Decision: RSO and Graft stay separate engines. Mixed questions must be source-labeled.
 The approved stack is local SQLite/FTS5 plus the `rso-context` CLI. Optional local stdio MCP (`rso-context mcp`) uses the same core functions, project identity, and ledger. Do not add HTTP hosting, a daemon, or a cloud memory provider without a new decision in this file.
 Decision: cross-project retrieval uses `search_order` (active project, domain, shared). Do not add a concept_id registry or store concept bodies in sqlite. Shared rules live as plates. A span found in another project is observed, not inherited as verified. Override by copying the plate into the project (new source). Studio and class work do not share one concept space.

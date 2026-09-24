@@ -140,6 +140,30 @@ def bind_roots(roots: list[str] | tuple[str, ...]) -> list[Path]:
     return bound
 
 
+def resolve_launch_roots(
+    roots: list[str] | tuple[str, ...] | None,
+    *,
+    cwd: str | Path | None = None,
+) -> list[Path]:
+    """Launch roots, falling back to the folder the host started the server in.
+
+    A stdio host spawns the server with its working directory set to the project
+    the user opened, so taking that directory when no --root is given lets one
+    config entry serve every project instead of needing an edit per folder. This
+    is still a launch-time bound: assert_bounded_root refuses a user profile or
+    an unbounded home child either way, and nothing widens access at run time.
+    """
+    if roots:
+        return bind_roots(roots)
+    candidate = Path(cwd) if cwd is not None else Path.cwd()
+    try:
+        return bind_roots([str(candidate)])
+    except ValueError as error:
+        raise ValueError(
+            f"No --root was given and the working directory cannot be a launch root: {error}"
+        ) from error
+
+
 def path_is_within_root(root: str | Path, path: str | Path) -> bool:
     try:
         root_path = Path(root).expanduser().resolve()

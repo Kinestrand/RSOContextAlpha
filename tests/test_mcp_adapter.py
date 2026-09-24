@@ -11,6 +11,7 @@ from rso_context.cli import main
 from rso_context.db import Database
 from rso_context.ingest import ingest_project
 from rso_context.mcp_contract import (
+    resolve_launch_roots,
     TOOL_NAMES,
     assert_bounded_root,
     bind_roots,
@@ -66,11 +67,23 @@ class McpContractTests(unittest.TestCase):
     def test_parser_exposes_mcp_without_serving(self):
         self.assertEqual(main(["mcp", "--status"]), 0)
 
-    def test_serve_without_root_fails(self):
+    def test_serve_without_root_fails_from_an_unbounded_directory(self):
+        """No --root means the working directory, which must still be a bounded folder.
+
+        Serving with no --root used to be refused outright. It now binds the
+        directory the host launched the server in, so one config entry serves
+        every project. The refusal moves rather than disappears: an unbounded
+        working directory is still rejected before anything is served.
+        """
+        original = os.getcwd()
         with tempfile.TemporaryDirectory() as tmp:
             db = str(Path(tmp) / "context.sqlite3")
-            self.assertEqual(main(["--db", db, "mcp"]), 2)
-            self.assertEqual(main(["mcp", "--db", db]), 2)
+            os.chdir(Path.home())
+            try:
+                self.assertEqual(main(["--db", db, "mcp"]), 2)
+                self.assertEqual(main(["mcp", "--db", db]), 2)
+            finally:
+                os.chdir(original)
 
     def test_path_must_stay_inside_launch_root(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -86,6 +99,29 @@ class McpContractTests(unittest.TestCase):
             self.assertEqual(resolve_tool_path(nested, roots), nested.resolve())
             with self.assertRaises(ValueError):
                 resolve_tool_path(other, roots)
+
+    def test_launch_roots_default_to_the_working_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "bounded project"
+            workspace.mkdir()
+            bound = resolve_launch_roots(None, cwd=workspace)
+            self.assertEqual([path.name for path in bound], ["bounded project"])
+
+    def test_explicit_roots_win_over_the_working_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            chosen = Path(tmp) / "chosen"
+            chosen.mkdir()
+            elsewhere = Path(tmp) / "elsewhere"
+            elsewhere.mkdir()
+            bound = resolve_launch_roots([str(chosen)], cwd=elsewhere)
+            self.assertEqual([path.name for path in bound], ["chosen"])
+
+    def test_working_directory_fallback_still_refuses_a_user_profile(self):
+        home = Path.home()
+        with self.assertRaises(ValueError):
+            resolve_launch_roots(None, cwd=home)
+        with self.assertRaises(ValueError):
+            resolve_launch_roots(None, cwd=home / "Documents")
 
     def test_user_profile_is_not_a_root(self):
         with self.assertRaises(ValueError):

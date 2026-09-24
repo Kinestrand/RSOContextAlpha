@@ -83,6 +83,47 @@ class McpSetupTests(unittest.TestCase):
         self.assertIn("kapture", after["mcpServers"])
         self.assertTrue(after["autoUpdates"])
 
+    def test_opencode_setup_keeps_comments_file_parseable_and_other_servers(self):
+        """OpenCode keys servers under "mcp" with a command list, and its config may be .jsonc."""
+        config = Path(self.temp.name) / "opencode.jsonc"
+        config.write_text(
+            '{\n  // a comment the parser must tolerate\n'
+            '  "theme": "dark",\n'
+            '  "mcp": { "kapture": {"type": "local", "command": ["kapture"]} }\n}\n',
+            encoding="utf-8",
+        )
+        setup_client("opencode", self.root, config=config)
+        setup_client("opencode", self.root, config=config)
+        data = json.loads(config.read_text(encoding="utf-8"))
+        self.assertEqual(data["theme"], "dark")
+        self.assertIn("kapture", data["mcp"])
+        entry = data["mcp"]["rso-context"]
+        self.assertEqual(entry["type"], "local")
+        self.assertTrue(entry["enabled"])
+        self.assertEqual(entry["command"][-2], "--root")
+        self.assertEqual(entry["command"][-1], str(self.root.resolve()))
+        remove_client("opencode", config=config)
+        after = json.loads(config.read_text(encoding="utf-8"))
+        self.assertNotIn("rso-context", after["mcp"])
+        self.assertIn("kapture", after["mcp"])
+        self.assertEqual(after["theme"], "dark")
+
+    def test_generated_env_carries_what_a_replaced_spawn_env_would_lose(self):
+        """Hosts that replace the child env must still get a startable server.
+
+        RSO_CONTEXT_HOME removes the need for a home directory, and on Windows
+        SystemRoot is what winsock needs. Without them the server dies before
+        the handshake and the host reports a timeout instead of a crash.
+        """
+        config = Path(self.temp.name) / "claude.json"
+        setup_client("claude-code", self.root, config=config)
+        env = json.loads(config.read_text(encoding="utf-8"))["mcpServers"]["rso-context"]["env"]
+        self.assertIn("PYTHONPATH", env)
+        self.assertTrue(env["RSO_CONTEXT_HOME"])
+        if os.name == "nt":
+            self.assertTrue(env["SystemRoot"])
+            self.assertEqual(len(env["PATH"].split(os.pathsep)), 2)
+
     def test_setup_quotes_roots_that_contain_spaces(self):
         root = Path(self.temp.name) / "bounded project"
         root.mkdir()

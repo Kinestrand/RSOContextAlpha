@@ -138,15 +138,29 @@ rso-context mcp --install-runtime
 rso-context mcp --status
 ```
 
-Setup writes only an RSO-owned `rso-context` server entry. Codex uses `config.toml` `[mcp_servers.rso-context]`. Claude Code uses `mcpServers.rso-context` in `.claude.json`. Gemini CLI uses `~/.gemini/settings.json` and Antigravity uses `~/.gemini/config/mcp_config.json` (override with `RSO_MCP_GEMINI_CONFIG` or `RSO_MCP_ANTIGRAVITY_CONFIG`); setting up or removing one leaves the other alone. Repeat setup replaces that entry and leaves other servers in place. Removal deletes only `rso-context`.
+Setup writes only an RSO-owned `rso-context` server entry. Codex uses `config.toml` `[mcp_servers.rso-context]`. Claude Code uses `mcpServers.rso-context` in `.claude.json`. Gemini CLI uses `~/.gemini/settings.json` and Antigravity uses `~/.gemini/config/mcp_config.json` (override with `RSO_MCP_GEMINI_CONFIG` or `RSO_MCP_ANTIGRAVITY_CONFIG`); setting up or removing one leaves the other alone. OpenCode uses `mcp.rso-context` in `~/.config/opencode/opencode.json`, or the `.jsonc` beside it when that file already exists (override with `RSO_MCP_OPENCODE_CONFIG`); its entry is a `command` list rather than a command plus args. Repeat setup replaces that entry and leaves other servers in place. Removal deletes only `rso-context`.
 
 ```text
 rso-context mcp --setup --client codex --root <bounded-project-folder>
 rso-context mcp --setup --client claude-code --root <bounded-project-folder>
 rso-context mcp --setup --client gemini --root <bounded-project-folder>
 rso-context mcp --setup --client antigravity --root <bounded-project-folder>
+rso-context mcp --setup --client opencode --root <bounded-project-folder>
 rso-context mcp --remove --client codex
 ```
+
+`--root` may be omitted, in which case setup uses the current directory. A
+launch with no `--root` at all binds the directory the host started the server
+in, which is the project the user opened, so one configured entry covers every
+project without a config edit per folder. The bound is unchanged: an unbounded
+working directory such as a user profile or Documents is refused before
+anything is served, and `--root` still wins when given.
+
+The generated entry carries `RSO_CONTEXT_HOME` and, on Windows, `SystemRoot`
+with a system-only `PATH`. Some hosts replace the child environment with the
+config's env block instead of adding to it; without those the server cannot
+find a home directory or load winsock, dies before the handshake, and the host
+reports a request timeout rather than a crash.
 
 Isolated checks must pass `--config <file>`. Do not point tests at a live user config. Setup and removal rewrite only the `rso-context` tables; other `[mcp_servers.*]` headers, including those with trailing comments, stay in place. MCP query and explain omit sources outside the launch `--root` folders. `rso_query` sends a text-only tool result so the JSON-RPC `tools/call` payload stays within `byte_budget`. Other clients can launch the stdio command printed by `doctor` under `mcp_clients.stdio`; that is not a tested compatibility claim. Tool discovery is not automatic use: still call `rso_use` then `rso_query` with the actual task.
 
