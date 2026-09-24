@@ -40,8 +40,41 @@ def _print(value: object) -> None:
     print(json.dumps(value, ensure_ascii=True, indent=2, sort_keys=True))
 
 
+STDIO_STARTUP_ERROR_CODE = -32099
+
+
+def _emit_stdio_startup_failure(error: BaseException) -> None:
+    """Tell a stdio client why the server is not starting.
+
+    A client that only watches stdout cannot tell a crash from a hang. The
+    process writes its reason to stderr and exits, the client waits out its own
+    timeout, and the failure is reported as a timeout rather than as whatever
+    actually went wrong. One JSON-RPC error frame makes the reason visible on
+    the channel the client is already reading. id is null because this happens
+    before any request has been read.
+    """
+    frame = {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {
+            "code": STDIO_STARTUP_ERROR_CODE,
+            "message": f"rso-context cannot start: {error}",
+            "data": {"type": type(error).__name__},
+        },
+    }
+    try:
+        print(json.dumps(frame, ensure_ascii=True, sort_keys=True), flush=True)
+    except Exception:
+        # stdout is already unusable; the stderr JSON from main() is all we have.
+        pass
+
+
+def _db_path(args: argparse.Namespace) -> str:
+    return args.db if args.db else str(default_db_path())
+
+
 def _database(args: argparse.Namespace) -> Database:
-    database = Database(args.db)
+    database = Database(_db_path(args))
     database.initialize()
     return database
 
@@ -466,7 +499,7 @@ def command_admin(args: argparse.Namespace) -> int:
 
 
 def _mcp_argv(args: argparse.Namespace, roots: list[str] | None = None) -> list[str]:
-    argv = ["--db", str(args.db), "mcp"]
+    argv = ["--db", _db_path(args), "mcp"]
     for root in (roots if roots is not None else (args.roots or [])):
         argv.extend(["--root", str(root)])
     return argv
@@ -499,13 +532,17 @@ def command_mcp(args: argparse.Namespace) -> int:
         return 0
     from .mcp_contract import resolve_launch_roots
 
-    roots = [str(path) for path in resolve_launch_roots(args.roots)]
-    status = current_sdk_status()
-    if not status["usable"] and os.environ.get("RSO_MCP_IN_RUNTIME") != "1":
-        return serve_via_runtime(_mcp_argv(args, roots))
-    from .mcp_server import serve_stdio
-
-    serve_stdio(db_path=str(args.db), roots=roots)
+    try:
+        roots = [str(path) for path in resolve_launch_roots(args.roots)]
+        db_path = _db_path(args)
+        status = current_sdk_status()
+        if not status["usable"] and os.environ.get("RSO_MCP_IN_RUNTIME") != "1":
+            return serve_via_runtime(_mcp_argv(args, roots))
+        from .mcp_server import serve_stdio
+    except Exception as error:
+        _emit_stdio_startup_failure(error)
+        raise
+    serve_stdio(db_path=db_path, roots=roots)
     return 0
 
 
@@ -523,7 +560,9 @@ def _add_discovery(parser: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rso-context", description="Local agent-independent context graph")
-    parser.add_argument("--db", default=str(default_db_path()), help="SQLite database path")
+    # Resolved on use, not here: default_db_path() needs a home directory, and
+    # building the parser happens before main() can turn that into a clean error.
+    parser.add_argument("--db", default=None, help="SQLite database path")
     parser.add_argument("--version", action="version", version=__version__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 

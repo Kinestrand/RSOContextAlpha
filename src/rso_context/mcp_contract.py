@@ -95,16 +95,39 @@ def tool_names() -> tuple[str, ...]:
 
 
 def _home_paths() -> list[Path]:
-    homes: list[Path] = []
+    """Every profile directory this process can name, for the root refusal.
+
+    Path.home() raises RuntimeError when the environment carries no home, which
+    a host that replaces the child environment can produce. The environment
+    variables are consulted as well so a partial environment still gets the
+    refusal instead of silently losing it. A process that can name no home at
+    all cannot recognise a profile, and the refusal has nothing to compare.
+    """
+    candidates: list[Path] = []
     try:
-        candidates = (Path.home(),)
+        candidates.append(Path.home())
     except RuntimeError:
-        return homes
+        pass
+    for name in ("USERPROFILE", "HOME"):
+        value = os.environ.get(name)
+        if value:
+            candidates.append(Path(value))
+    drive = os.environ.get("HOMEDRIVE")
+    tail = os.environ.get("HOMEPATH")
+    if drive and tail:
+        candidates.append(Path(drive + tail))
+    homes: list[Path] = []
+    seen: set[str] = set()
     for candidate in candidates:
         try:
-            homes.append(candidate.expanduser().resolve())
-        except OSError:
+            resolved = candidate.expanduser().resolve()
+        except (OSError, RuntimeError):
             continue
+        key = os.path.normcase(str(resolved))
+        if key in seen:
+            continue
+        seen.add(key)
+        homes.append(resolved)
     return homes
 
 
@@ -155,7 +178,15 @@ def resolve_launch_roots(
     """
     if roots:
         return bind_roots(roots)
-    candidate = Path(cwd) if cwd is not None else Path.cwd()
+    if cwd is not None:
+        candidate = Path(cwd)
+    else:
+        try:
+            candidate = Path.cwd()
+        except OSError as error:
+            raise ValueError(
+                f"No --root was given and the working directory cannot be read: {error}"
+            ) from error
     try:
         return bind_roots([str(candidate)])
     except ValueError as error:

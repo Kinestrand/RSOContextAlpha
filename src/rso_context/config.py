@@ -138,7 +138,15 @@ def default_home() -> Path:
         user_profile = os.environ.get("USERPROFILE")
         if user_profile:
             return Path(user_profile) / ".rso-context"
-    return Path.home() / ".local" / "share" / "rso-context-alpha"
+    try:
+        home = Path.home()
+    except RuntimeError as error:
+        raise RuntimeError(
+            "Cannot place the ledger: this process has no home directory. "
+            "Set RSO_CONTEXT_HOME, or pass --db with an explicit path. "
+            f"({error})"
+        ) from error
+    return home / ".local" / "share" / "rso-context-alpha"
 
 
 def default_db_path() -> Path:

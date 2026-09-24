@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from rso_context.cli import main
+from rso_context.cli import (
+    STDIO_STARTUP_ERROR_CODE,
+    _emit_stdio_startup_failure,
+    build_parser,
+    main,
+)
 from rso_context.db import Database
 from rso_context.ingest import ingest_project
 from rso_context.mcp_contract import (
@@ -84,6 +92,33 @@ class McpContractTests(unittest.TestCase):
                 self.assertEqual(main(["mcp", "--db", db]), 2)
             finally:
                 os.chdir(original)
+
+    def test_profile_refusal_survives_a_missing_path_home(self):
+        """A partial env must keep the refusal, not lose it with Path.home()."""
+        with tempfile.TemporaryDirectory() as profile:
+            with patch.object(Path, "home", side_effect=RuntimeError("no home")):
+                with patch.dict(os.environ, {"USERPROFILE": profile}, clear=False):
+                    with self.assertRaises(ValueError):
+                        resolve_launch_roots([profile])
+
+    def test_db_default_is_not_resolved_while_building_the_parser(self):
+        """default_db_path() needs a home; the parser is built before main() can report that."""
+        with patch("rso_context.config.Path.home", side_effect=RuntimeError("no home")):
+            with patch.dict(os.environ, {}, clear=True):
+                parser = build_parser()
+        self.assertIsNone(parser.parse_args(["mcp", "--status"]).db)
+
+    def test_startup_failure_is_announced_on_stdout(self):
+        """A stdio client watching stdout must get a reason, not silence it reads as a timeout."""
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            _emit_stdio_startup_failure(ValueError("root is not a directory"))
+        frame = json.loads(buffer.getvalue().strip())
+        self.assertEqual(frame["jsonrpc"], "2.0")
+        self.assertIsNone(frame["id"])
+        self.assertEqual(frame["error"]["code"], STDIO_STARTUP_ERROR_CODE)
+        self.assertIn("root is not a directory", frame["error"]["message"])
+        self.assertEqual(frame["error"]["data"]["type"], "ValueError")
 
     def test_path_must_stay_inside_launch_root(self):
         with tempfile.TemporaryDirectory() as tmp:
