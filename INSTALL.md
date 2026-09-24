@@ -22,6 +22,8 @@ Extract the release ZIP before installing. The installer copies only files liste
 
 Python **3.11 or newer**, Git on PATH, and Python's standard-library SQLite with FTS5 are required. The installed Windows command launches Python directly. PowerShell is needed only for the optional `.ps1` launcher and PowerShell examples. The core program needs no pip packages, API key, model account, or network service. The installer checks Python and Git; `doctor` checks SQLite afterward.
 
+FTS5 is a compile-time option in SQLite, not a separate program to install, so there is nothing to add to a Python that already has it. When `doctor` reports `"fts5": false`, read the accompanying `fts5_error` and switch interpreters rather than trying to patch the current one. The python.org installers for Windows and macOS ship SQLite with FTS5 enabled, as do the Debian and Ubuntu `python3` packages and Homebrew's `python@3.12`. A Python built from source picks up the option only when a SQLite with FTS5 was present at build time; on Debian and Ubuntu that means installing `libsqlite3-dev` first and rebuilding. The Xcode Command Line Tools Python on macOS is the other common source of a failing check, and the fix there is to install a current python.org or Homebrew build and rerun `install.py` against it.
+
 The POSIX launcher is supplied for Linux and macOS. Linux CLI + MCP runtime was verified on Debian (see VERIFICATION.md). Current-branch automated macOS checks also passed; see [VERIFICATION.md](VERIFICATION.md) for the tested commit and release boundary.
 
 ## Windows
@@ -136,15 +138,29 @@ rso-context mcp --install-runtime
 rso-context mcp --status
 ```
 
-Setup writes only an RSO-owned `rso-context` server entry. Codex uses `config.toml` `[mcp_servers.rso-context]`. Claude Code uses `mcpServers.rso-context` in `.claude.json`. Gemini CLI uses `~/.gemini/settings.json` and Antigravity uses `~/.gemini/config/mcp_config.json` (override with `RSO_MCP_GEMINI_CONFIG` or `RSO_MCP_ANTIGRAVITY_CONFIG`); setting up or removing one leaves the other alone. Repeat setup replaces that entry and leaves other servers in place. Removal deletes only `rso-context`.
+Setup writes only an RSO-owned `rso-context` server entry. Codex uses `config.toml` `[mcp_servers.rso-context]`. Claude Code uses `mcpServers.rso-context` in `.claude.json`. Gemini CLI uses `~/.gemini/settings.json` and Antigravity uses `~/.gemini/config/mcp_config.json` (override with `RSO_MCP_GEMINI_CONFIG` or `RSO_MCP_ANTIGRAVITY_CONFIG`); setting up or removing one leaves the other alone. OpenCode uses `mcp.rso-context` in `~/.config/opencode/opencode.json`, or the `.jsonc` beside it when that file already exists (override with `RSO_MCP_OPENCODE_CONFIG`); its entry is a `command` list rather than a command plus args. Repeat setup replaces that entry and leaves other servers in place. Removal deletes only `rso-context`.
 
 ```text
 rso-context mcp --setup --client codex --root <bounded-project-folder>
 rso-context mcp --setup --client claude-code --root <bounded-project-folder>
 rso-context mcp --setup --client gemini --root <bounded-project-folder>
 rso-context mcp --setup --client antigravity --root <bounded-project-folder>
+rso-context mcp --setup --client opencode --root <bounded-project-folder>
 rso-context mcp --remove --client codex
 ```
+
+`--root` may be omitted, in which case setup uses the current directory. A
+launch with no `--root` at all binds the directory the host started the server
+in, which is the project the user opened, so one configured entry covers every
+project without a config edit per folder. The bound is unchanged: an unbounded
+working directory such as a user profile or Documents is refused before
+anything is served, and `--root` still wins when given.
+
+The generated entry carries `RSO_CONTEXT_HOME` and, on Windows, `SystemRoot`
+with a system-only `PATH`. Some hosts replace the child environment with the
+config's env block instead of adding to it; without those the server cannot
+find a home directory or load winsock, dies before the handshake, and the host
+reports a request timeout rather than a crash.
 
 Isolated checks must pass `--config <file>`. Do not point tests at a live user config. Setup and removal rewrite only the `rso-context` tables; other `[mcp_servers.*]` headers, including those with trailing comments, stay in place. MCP query and explain omit sources outside the launch `--root` folders. `rso_query` sends a text-only tool result so the JSON-RPC `tools/call` payload stays within `byte_budget`. Other clients can launch the stdio command printed by `doctor` under `mcp_clients.stdio`; that is not a tested compatibility claim. Tool discovery is not automatic use: still call `rso_use` then `rso_query` with the actual task.
 
