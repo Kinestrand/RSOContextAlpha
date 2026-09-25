@@ -51,6 +51,12 @@ Dumping files into the prompt is honest and expensive. Embedding search is cheap
 
 RSO’s job is to hand the agent a small, checkable packet: this project, these current sources, these claims, any named validations, a hash of the packet. The agent still writes the answer. The ledger does not update the model’s weights and does not make the LLM deterministic. It makes the **inputs** inspectable.
 
+## An outside data point on irrelevant state
+
+TypeSafe AI's Jev is a decision model: it answers typed questions and returns a pick or a number with a probability, rather than prose. A community-maintained list of its use cases, unaffiliated with the vendor and read on 2026-09-24, records the model's own stated limitations at version 1.13. One of them is that its accuracy drops when the input carries irrelevant state.
+
+That is a commercial model's own documented weakness, as relayed there, naming the failure a bounded packet exists to prevent. It is not a benchmark of RSO and not a claim that RSO improves any model's numbers; nobody has measured that. It is one outside report that context discipline is worth something to a system that has no opinion about this project. Worth noting alongside it: that model's three question types are yes/no, pick-one, and a number, which is the same split `rso_check` uses for claim, choice, and value. The difference is what comes back. Jev returns a probability from a model. A check returns an evidence status computed from current source sentences, and never records a validation.
+
 ## The computer-graphics intuition
 
 The idea comes from production, not from cognitive science.
