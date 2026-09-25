@@ -156,6 +156,12 @@ project without a config edit per folder. The bound is unchanged: an unbounded
 working directory such as a user profile or Documents is refused before
 anything is served, and `--root` still wins when given.
 
+When the server cannot start, it writes a JSON-RPC error frame to stdout as
+well as the JSON error on stderr, with code `-32099` and a null id. A client
+that watches only stdout would otherwise see nothing, wait out its own timeout,
+and report the startup failure as a timed-out request. Read the `message` for
+the actual cause.
+
 The generated entry carries `RSO_CONTEXT_HOME` and, on Windows, `SystemRoot`
 with a system-only `PATH`. Some hosts replace the child environment with the
 config's env block instead of adding to it; without those the server cannot
