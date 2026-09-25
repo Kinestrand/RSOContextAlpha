@@ -1,8 +1,24 @@
 # Changelog
 
-## Unreleased
+## 0.9.3
 
 ### Added
+
+- A launch with no `--root` binds the directory the host started the server in,
+  which is the project the user opened, so one configured MCP entry serves every
+  project instead of needing a config edit per folder. This is a launch-time
+  bound, not run-time widening: the same refusal still rejects a user profile or
+  an unbounded home child, and `--root` still wins when given.
+- `mcp --setup --client opencode` writes the OpenCode entry. That host keys
+  servers under `mcp` with a command list rather than `mcpServers`, and its
+  config may be `.jsonc`, so the writer tolerates comments while leaving
+  unrelated settings in place. `--root` may now be omitted from `--setup`, in
+  which case the current directory is used.
+- Generated host entries carry `RSO_CONTEXT_HOME` and, on Windows, `SystemRoot`
+  with a two-entry system `PATH`. A host that replaces rather than augments the
+  child environment otherwise spawns a server that can neither locate a ledger
+  nor load winsock. The user's own `PATH` is deliberately not copied into a
+  config file.
 
 - `rso-context replay` re-runs the queries and checks already recorded in the
   ledger against the current build and reports which packets changed. Semantic
@@ -19,6 +35,27 @@
 - `benchmarks/budget_sweep.py` sweeps `--limit` and `--token-budget` over
   recorded runs and prints a coverage-against-cost table. It is advisory, and a
   sweep over a small corpus will recommend whatever fits that corpus.
+
+### Fixed
+
+- The stdio adapter no longer dies before answering `initialize` when the
+  spawn environment carries no home directory. `Path.home()` raises
+  `RuntimeError`, not `OSError`, so the existing handler never fired. A host
+  that replaces the child environment produced exactly that, and reported the
+  silent exit as `-32001 Request timed out`.
+- Startup failures now emit a JSON-RPC error frame on stdout as well as the JSON
+  on stderr, with code `-32099`, a null id and the cause in the message. A
+  client watching only stdout previously could not tell a crash from a hang.
+- The `--db` default no longer needs a home directory to build the argument
+  parser. In a home-less environment that raised before the CLI could report
+  it, giving a bare traceback and exit 1 even when `--db` was passed.
+- `default_home()` names `RSO_CONTEXT_HOME` and `--db` instead of surfacing
+  pathlib's `RuntimeError`, and an unreadable working directory is reported as a
+  launch-root failure rather than an uncaught `OSError`.
+- The user-profile root refusal no longer disappears when `Path.home()` is
+  unavailable. It also reads `USERPROFILE`, `HOME` and `HOMEDRIVE`+`HOMEPATH`,
+  so a partial environment keeps the guard. A process that can name no home at
+  all still has nothing to compare against.
 
 ## 0.9.2
 

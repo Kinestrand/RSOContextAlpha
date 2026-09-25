@@ -1,6 +1,6 @@
-# RSO Context Alpha 0.9.2
+# RSO Context Alpha 0.9.3
 
-[Download 0.9.2](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.2) ·
+[Download 0.9.3](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.3) ·
 [Quick-start](QUICKSTART.md) · [Installation](INSTALL.md) ·
 [Manual](MANUAL.md) · [Changes](CHANGELOG.md) · [Verification](VERIFICATION.md)
 
@@ -21,8 +21,8 @@ The files remain the source of truth. RSO doesn't learn from chat, call a model,
 
 ## Start here
 
-Download **RSOContextAlpha-0.9.2.zip** from the
-[0.9.2 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.2) and
+Download **RSOContextAlpha-0.9.3.zip** from the
+[0.9.3 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.3) and
 extract it. The release page includes a SHA-256 checksum. GitHub access is
 required while the repository is private. A release ZIP is tied to a version;
 **Code > Download ZIP** downloads the selected branch's current source instead.
@@ -58,7 +58,22 @@ MCP permissions and searchable context are separate. A launch `--root` permits a
 | Integrate through MCP | Configure bounded launch roots and call `rso_use` before querying |
 | Inspect the ledger locally | Run the optional read-only localhost viewer with `admin` |
 
-## What's new in 0.9.2
+## What's new in 0.9.3
+
+- An MCP launch with no `--root` binds the folder the host started the server in,
+  so adding a project no longer means editing a host config. The bound does not
+  move: a user profile or an unbounded home child is still refused.
+- `mcp --setup --client opencode` writes that host's entry, and `--setup` may
+  omit `--root` to use the current directory.
+- The adapter starts in a spawn environment that carries no home directory, and
+  says why on stdout when it cannot start at all. A host that replaces rather
+  than augments the child environment used to get a silent exit and report it as
+  a timed-out request.
+- `rso-context replay` re-runs recorded queries and checks against the current
+  build and reports which packets changed, separating a moved corpus and edited
+  sources from a real regression.
+
+## What was new in 0.9.2
 
 - Evaluating, testing, comparing or trying an option is no longer read as
   choosing it. "We evaluated the Arnold renderer for finals" now returns
@@ -127,13 +142,13 @@ python -B install.py
 & "$env:USERPROFILE\.local\bin\rso-context.cmd" doctor
 ```
 
-The version should be `0.9.2`; `doctor` should report `ready: true`. The installer
+The version should be `0.9.3`; `doctor` should report `ready: true`. The installer
 prints the command path and does not change PATH. Follow the
 [quick-start demo](QUICKSTART.md) for a complete example using a disposable
 project and ledger. [INSTALL.md](INSTALL.md) covers Linux, macOS, and custom paths;
 automated Windows, Ubuntu, and macOS checks run on every change (see VERIFICATION.md).
 
-The 0.9.2 ZIP includes the Linux path-isolation fixes and Git Bash launcher
+The 0.9.3 ZIP includes the Linux path-isolation fixes and Git Bash launcher
 support. For Linux, follow
 [the Linux installation instructions](INSTALL.md#linux). See
 [VERIFICATION.md](VERIFICATION.md) for recorded Debian and Ubuntu checks.

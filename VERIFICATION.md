@@ -1,5 +1,31 @@
 # RSO verification status
 
+## 0.9.3, September 25
+
+Release checks for 0.9.3 on Windows 11 under the bundled `mcp-runtime`
+(Python 3.12.11): 161 regression tests passed with one POSIX-only test
+skipped. GitHub Actions passed on Windows, Ubuntu, and macOS with Python 3.11
+and 3.12 for each of the three merges in this release.
+
+The MCP startup changes were also checked live against the isolated runtime,
+by spawning the adapter over stdio with a deliberately stripped environment
+rather than only through unit tests. With no home directory and `--db` given,
+the server starts and answers `initialize`. With no home directory and no
+`--db`, it exits 2 with the JSON-RPC error frame on stdout and the JSON error
+on stderr. With the working directory set to the user profile and
+`USERPROFILE` present, the launch-root refusal still fires and is announced on
+stdout. Binding the working directory was checked by launching with no
+`--root` at all from inside a bounded project.
+
+Two limits on that scope. The `SystemRoot` half of the original failure is
+environmental: a Windows child process without it cannot load winsock, and no
+change here fixes that, which is why setup writes the variable into the host
+entry. Live OpenCode acceptance is unverified; the client entry that `--setup
+--client opencode` writes was checked by round-tripping the config file and by
+starting the server with that entry's own command and environment, not by
+driving OpenCode itself. Native macOS live-agent acceptance remains
+unverified.
+
 ## 0.9.2, September 19
 
 Release checks for 0.9.2 on Windows 11 with Python 3.12.5: 145 regression
