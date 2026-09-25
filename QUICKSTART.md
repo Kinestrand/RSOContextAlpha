@@ -15,8 +15,8 @@ These steps are for Windows. macOS instructions are in
 
 ## 1. Download and extract
 
-1. Open the [RSO 0.9.2 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.2).
-2. Under **Assets**, download **RSOContextAlpha-0.9.2.zip**.
+1. Open the [RSO 0.9.3 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.3).
+2. Under **Assets**, download **RSOContextAlpha-0.9.3.zip**.
 3. In File Explorer, open Downloads. Right-click the downloaded ZIP and choose
    **Extract All**, then **Extract**.
 4. Open the extracted folder, then any folder inside it, until you can see
@@ -24,7 +24,7 @@ These steps are for Windows. macOS instructions are in
    hide the `.py`, `.md`, and `.txt` endings.
 
 You don't need to fork the repository, clone it, or use GitHub Actions.
-The packaged ZIP is tied to version 0.9.2. For development, **Code > Download ZIP**
+The packaged ZIP is tied to version 0.9.3. For development, **Code > Download ZIP**
 on the repository downloads the current branch instead; it also contains the
 installer, but can include changes newer than a tagged release.
 
@@ -97,7 +97,7 @@ these show where RSO was installed. Next, copy this block:
 & "$env:USERPROFILE\.local\bin\rso-context.cmd" doctor
 ```
 
-The version should include `0.9.2`. The doctor result should include
+The version should include `0.9.3`. The doctor result should include
 `"ready": true`. If it says false, look at the checks in that result and the
 troubleshooting table below. MCP is optional. If you install it later with
 `rso-context mcp --install-runtime`, `doctor` must show `runtime_mcp_version`
