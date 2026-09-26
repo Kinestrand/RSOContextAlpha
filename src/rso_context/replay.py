@@ -131,8 +131,8 @@ def _replay_one(
             token_budget=int(config.get("token_budget", 4_000)),
             use_cache=False,
             replay_run_info={
-                "remaining": int(remaining if remaining is not None else run_info.get("remaining", 0)),
-                "initial": int(run_info.get("initial", 0)),
+                "remaining": remaining if remaining is not None else run_info.get("remaining"),
+                "initial": run_info.get("initial"),
             },
         )
 

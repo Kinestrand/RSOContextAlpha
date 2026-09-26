@@ -31,7 +31,7 @@ from .compact import compact_packet
 from .replay import replay_runs
 from .query import query_context
 from .resume import resume_context
-from .run_budget import get_or_start, set_budget
+from .run_budget import clear_budget, get_budget, set_budget
 
 
 def _print(value: object) -> None:
@@ -248,10 +248,12 @@ def command_run_budget(args: argparse.Namespace) -> int:
     project = resolve_existing_project(database, path=args.path, project_id=None)
     project_id = str(project["id"])
     with database.transaction() as connection:
-        if args.set_value is not None:
+        if args.clear:
+            result = clear_budget(connection, project_id, args.agent)
+        elif args.set_value is not None:
             result = set_budget(connection, project_id, args.agent, args.set_value)
         else:
-            result = get_or_start(connection, project_id, args.agent)
+            result = get_budget(connection, project_id, args.agent)
     _print(
         {
             "remaining": result["remaining"],
@@ -639,7 +641,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_budget_parser.add_argument("--agent", required=True)
     run_budget_parser.add_argument("--path", default=str(Path.cwd()))
-    run_budget_parser.add_argument("--set", type=int, dest="set_value", metavar="N")
+    run_budget_group = run_budget_parser.add_mutually_exclusive_group()
+    run_budget_group.add_argument("--set", type=int, dest="set_value", metavar="N")
+    run_budget_group.add_argument("--clear", action="store_true", help="Remove the budget; queries are not counted")
     run_budget_parser.set_defaults(function=command_run_budget)
 
     propose_parser = subparsers.add_parser(

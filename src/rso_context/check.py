@@ -29,7 +29,7 @@ from .query import (
     _topic_tokens,
     _validation_matches,
 )
-from .run_budget import consume
+from .run_budget import consume, get_budget
 from .scope import search_scope
 
 CHECK_SCHEMA = "rso-check/v1"
@@ -559,15 +559,7 @@ def check_questions(
     project_id_value = str(project["id"])
     if replay:
         with database.connect() as connection:
-            row = connection.execute(
-                "SELECT remaining, initial FROM run_budgets WHERE project_id=? AND agent=?",
-                (project_id_value, agent),
-            ).fetchone()
-        budget = (
-            {"remaining": int(row["remaining"]), "initial": int(row["initial"])}
-            if row is not None
-            else {"remaining": 0, "initial": 0}
-        )
+            budget = get_budget(connection, project_id_value, agent)
     else:
         with database.transaction() as connection:
             budget = consume(connection, project_id_value, agent, n=1)
@@ -623,7 +615,7 @@ def check_questions(
     result = {
         **body,
         "status": "ok",
-        "run": {"initial": int(budget["initial"]), "remaining": int(budget["remaining"])},
+        "run": {"initial": budget["initial"], "remaining": budget["remaining"]},
         "check_hash": check_hash,
     }
     if replay:
@@ -643,7 +635,7 @@ def check_questions(
                 check_hash,
                 (time.perf_counter() - started) * 1000,
                 utc_now(),
-                int(budget["remaining"]),
+                budget["remaining"],
             ),
         )
     return result

@@ -115,7 +115,7 @@ class QueryFreshnessTests(unittest.TestCase):
     def test_equal_remaining_budget_does_not_reuse_different_initial_budget(self):
         self.query(run_budget=20)
         large_initial = self.query(run_budget=8)
-        normal = self.query("b")
+        normal = self.query("b", run_budget=8)
         self.assertEqual(large_initial["run"], {"initial": 20, "remaining": 7})
         self.assertEqual(normal["run"], {"initial": 8, "remaining": 7})
 

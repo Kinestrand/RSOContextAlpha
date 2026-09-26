@@ -677,7 +677,7 @@ def query_context(
     token_budget: int = 4_000,
     use_cache: bool = True,
     run_budget: int | None = None,
-    replay_run_info: dict[str, int] | None = None,
+    replay_run_info: dict[str, int | None] | None = None,
 ) -> dict[str, object]:
     """Return a deterministic context packet for an already-registered project.
 
@@ -698,11 +698,11 @@ def query_context(
             if run_budget is not None:
                 set_budget(budget_connection, project_id_value, agent, int(run_budget))
             budget = consume(budget_connection, project_id_value, agent, n=1)
-        run_info = {"remaining": int(budget["remaining"]), "initial": int(budget["initial"])}
+        run_info = {"remaining": budget["remaining"], "initial": budget["initial"]}
     else:
         run_info = {
-            "remaining": int(replay_run_info["remaining"]),
-            "initial": int(replay_run_info["initial"]),
+            "remaining": replay_run_info.get("remaining"),
+            "initial": replay_run_info.get("initial"),
         }
     requirements = split_requirements(query, limit=MAX_LEAVES)
     config = {

@@ -489,9 +489,19 @@ class SliceBTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
+    def test_run_budget_is_opt_in(self) -> None:
+        for _ in range(12):
+            packet = query_context(
+                self.database, "serial number", path=self.project, agent="tester"
+            )
+            self.assertEqual(packet["run"], {"remaining": None, "initial": None})
+        with self.database.connect() as connection:
+            rows = connection.execute("SELECT COUNT(*) FROM run_budgets").fetchone()[0]
+        self.assertEqual(rows, 0)
+
     def test_run_budget_decrements_and_floors_at_zero(self) -> None:
         first = query_context(
-            self.database, "serial number", path=self.project, agent="tester"
+            self.database, "serial number", path=self.project, agent="tester", run_budget=8
         )
         self.assertEqual(first["run"]["initial"], 8)
         self.assertEqual(first["run"]["remaining"], 7)
@@ -644,7 +654,7 @@ class SliceBTests(unittest.TestCase):
                 ).fetchone()[0]
             )
             self.assertEqual(version, SCHEMA_VERSION)
-            self.assertEqual(version, 5)
+            self.assertEqual(version, 6)
             table = connection.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='run_budgets'"
             ).fetchone()
@@ -951,8 +961,27 @@ class PointerIndexTests(unittest.TestCase):
                     ).fetchone()[0]
                 )
                 texts = [row[0] for row in connection.execute("SELECT text FROM chunks")]
-            self.assertEqual(version, 5)
+            self.assertEqual(version, 6)
             self.assertTrue(any(text == "migrate-keep-body-okapi-12zz" for text in texts), texts)
+
+    def test_schema_v5_to_v6_drops_default_run_budgets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "budget-demo"
+            project.mkdir()
+            (project / "NOTE.md").write_text("# Note\n\nbudget migration\n", encoding="utf-8")
+            database = Database(root / "context.sqlite3")
+            ingest_project(database, project, agent="tester")
+            with database.transaction() as connection:
+                project_id = connection.execute("SELECT id FROM projects").fetchone()[0]
+                set_budget(connection, project_id, "stuck", 8)
+                connection.execute("UPDATE run_budgets SET remaining=0 WHERE agent='stuck'")
+                set_budget(connection, project_id, "chosen", 20)
+                connection.execute("UPDATE meta SET value='5' WHERE key='schema_version'")
+            database.initialize()
+            with database.connect() as connection:
+                agents = [row[0] for row in connection.execute("SELECT agent FROM run_budgets")]
+            self.assertEqual(agents, ["chosen"])
 
     def test_admin_html_contains_project_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
