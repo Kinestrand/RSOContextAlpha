@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 class SchemaVersionError(ValueError):
@@ -308,6 +308,12 @@ def _migrate_v5(connection: sqlite3.Connection) -> None:
     del connection
 
 
+def _migrate_v6(connection: sqlite3.Connection) -> None:
+    # Budgets used to start at 8 for every agent automatically and never refill.
+    # They are opt-in now, so drop the rows that only hold that old default.
+    connection.execute("DELETE FROM run_budgets WHERE initial = 8")
+
+
 def _migrate(connection: sqlite3.Connection, from_version: int) -> None:
     if from_version < 2:
         connection.executescript(SCHEMA_SQL)
@@ -317,6 +323,8 @@ def _migrate(connection: sqlite3.Connection, from_version: int) -> None:
         _migrate_v4(connection)
     if from_version < 5:
         _migrate_v5(connection)
+    if from_version < 6:
+        _migrate_v6(connection)
     _write_schema_version(connection, SCHEMA_VERSION)
 
 

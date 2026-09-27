@@ -129,7 +129,7 @@ rso-context audit "Preserve originals and export a 24 fps preview" --answer-file
 rso-context inbox --path <workspace>
 ```
 
-The default run budget is 8. Set a fresh budget deliberately for a new bounded run; increasing it doesn't improve evidence quality. Query options include `--limit` (default 8) and `--token-budget` (default 4000). An audit maps request and answer coverage to evidence using lexical checks. It isn't a proof checker for arbitrary prose. `inbox` lists open `RSO-CARD/v1` coordination proposals; ordinary projects don't need coordination cards to use retrieval.
+Run budgets are opt-in. With no budget set, queries aren't counted and packets report `run` as null. Set one with `--set N` for a deliberately bounded run, or remove it with `--clear`. Query options include `--limit` (default 8) and `--token-budget` (default 4000). An audit maps request and answer coverage to evidence using lexical checks. It isn't a proof checker for arbitrary prose. `inbox` lists open `RSO-CARD/v1` coordination proposals; ordinary projects don't need coordination cards to use retrieval.
 
 ## 6. Multiple projects and agents
 
@@ -256,7 +256,7 @@ and `--agent` values in repeatable agent workflows.
 | `propose` | File a positional suggestion; `--agent`, `--path` |
 | `pending` | List claims awaiting named validation; optional `--path` |
 | `record-validation` | Record an authorized decision for a claim ID; `--validator`, `--result` |
-| `run-budget` | Inspect or reset a budget; `--agent`, `--path`, optional `--set` |
+| `run-budget` | Inspect, set, or clear a budget; `--agent`, `--path`, optional `--set` or `--clear` |
 | `audit` | Compare a positional request and `--answer-file` against evidence |
 | `inbox` | Read open coordination cards; `--path`, optional `--topic`, `--limit` |
 | `watch` | Poll registered projects; use `--path` for one folder, `--once` for one poll |

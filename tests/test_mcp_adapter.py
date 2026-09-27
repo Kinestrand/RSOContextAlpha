@@ -502,8 +502,8 @@ class McpSharedLedgerTests(unittest.TestCase):
             self.assertEqual(beta["requirements"][0]["status"], "evidence_found")
             self.assertIn("blue", alpha["evidence"][0]["text"])
             self.assertEqual(alpha["project"]["id"], beta["project"]["id"])
-            self.assertEqual(alpha["run"]["remaining"], 7)
-            self.assertEqual(beta["run"]["remaining"], 7)
+            self.assertIsNone(alpha["run"]["remaining"])
+            self.assertIsNone(beta["run"]["remaining"])
             resumed = payload["resume"]["structured"]
             self.assertEqual(resumed["schema"], "rso-context-resume/v1")
             self.assertEqual(resumed["project"]["id"], alpha["project"]["id"])
@@ -511,7 +511,7 @@ class McpSharedLedgerTests(unittest.TestCase):
             self.assertEqual(cli["schema"], "rso-context-packet/v2")
             self.assertEqual(cli["project"]["id"], alpha["project"]["id"])
             self.assertEqual(cli["requirements"][0]["status"], "evidence_found")
-            self.assertEqual(cli["run"]["remaining"], 7)
+            self.assertIsNone(cli["run"]["remaining"])
 
     def test_tool_errors_do_not_crash_the_server(self):
         with tempfile.TemporaryDirectory() as tmp:

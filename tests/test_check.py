@@ -21,7 +21,7 @@ from rso_context.compact import serialized_bytes
 from rso_context.db import Database
 from rso_context.ingest import ingest_project
 from rso_context.mcp_server import explain_packet
-from rso_context.run_budget import get_or_start
+from rso_context.run_budget import set_budget
 
 from test_mcp_adapter import ROOT, _run_isolated, ensure_isolated_python
 
@@ -278,6 +278,10 @@ class ContractTests(CheckTestCase):
         self.write("spec.md", "Decision: export the preview at 24 fps.\n")
         self.ingest()
         questions = [{"id": str(n), "type": "claim", "text": "Preview export is 24 fps"} for n in range(12)]
+        unbudgeted = self.check(*questions)
+        self.assertEqual(unbudgeted["run"], {"initial": None, "remaining": None})
+        with self.database.transaction() as connection:
+            set_budget(connection, str(unbudgeted["project"]["id"]), "check-test", 8)
         result = self.check(*questions)
         self.assertEqual(result["run"]["initial"] - result["run"]["remaining"], 1)
         self.assertEqual(len(result["answers"]), 12)
