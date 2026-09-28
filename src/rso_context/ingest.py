@@ -16,6 +16,7 @@ from .config import (
     IGNORED_DIR_NAMES,
     TEXT_EXTENSIONS,
     Limits,
+    git_executable,
     is_sensitive_path,
 )
 from .db import Database, json_text
@@ -125,7 +126,7 @@ def _git_ls_files(root: Path) -> list[Path] | None:
     git_environment = dict(os.environ, LC_ALL="C", LANG="C")
     try:
         result = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "-z", "--cached"],
+            [git_executable(), "-C", str(root), "ls-files", "-z", "--cached"],
             check=False,
             capture_output=True,
             timeout=60,
@@ -133,7 +134,11 @@ def _git_ls_files(root: Path) -> list[Path] | None:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (FileNotFoundError, subprocess.SubprocessError, OSError) as error:
-        raise RuntimeError("Git file enumeration failed; ingestion stopped without walking untracked files") from error
+        raise RuntimeError(
+            "Git file enumeration failed; ingestion stopped without walking untracked files. "
+            f"Git could not be run ({error}). Install Git, or set RSO_GIT to git's full path "
+            "in the MCP entry's env and restart the host."
+        ) from error
     if result.returncode != 0:
         metadata_present = any(os.path.lexists(folder / ".git") for folder in (root, *root.parents))
         explicit_git = any(os.environ.get(name) for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR"))

@@ -25,6 +25,7 @@ from .discovery import discover_and_register
 from .identity import project_explanation, register_project, resolve_existing_project
 from .admin import serve_admin
 from .ingest import ingest_project
+from .mcp_setup import CLIENTS as MCP_SETUP_CLIENTS
 from .pointers import compact_pointers
 from .check import CHECK_SCHEMA, check_questions, explain_check, fit_check
 from .compact import compact_packet
@@ -467,7 +468,7 @@ def command_doctor(args: argparse.Namespace) -> int:
     database = _database(args)
     checks: dict[str, object] = {
         "python": sys.version.split()[0],
-        "git": shutil.which("git"),
+        "git": _found_git(),
         "database": str(database.path),
         "automatic_roots": [str(path) for path in automatic_discovery_roots()],
     }
@@ -504,7 +505,16 @@ def _mcp_argv(args: argparse.Namespace, roots: list[str] | None = None) -> list[
     argv = ["--db", _db_path(args), "mcp"]
     for root in (roots if roots is not None else (args.roots or [])):
         argv.extend(["--root", str(root)])
+    if getattr(args, "strict_roots", False):
+        argv.append("--strict-roots")
     return argv
+
+
+def _found_git() -> str | None:
+    from .config import git_executable
+
+    found = git_executable()
+    return found if found != "git" or shutil.which("git") else None
 
 
 def command_mcp(args: argparse.Namespace) -> int:
@@ -517,25 +527,36 @@ def command_mcp(args: argparse.Namespace) -> int:
         _print(runtime_status())
         return 0
     if args.setup or args.remove:
-        from .mcp_setup import CLIENTS as SETUP_CLIENTS, remove_client, setup_client
+        from .mcp_setup import remove_client, setup_all, setup_client
 
         if not args.client:
             raise ValueError(
                 "mcp --setup/--remove requires --client "
-                + ", ".join(SETUP_CLIENTS)
+                + ", ".join((*MCP_SETUP_CLIENTS, "all"))
             )
+        if args.client == "all":
+            if args.config:
+                raise ValueError("--config names one host's file; it cannot be combined with --client all")
+            if args.remove:
+                _print({
+                    "schema": "rso-mcp-setup-all/v1",
+                    "results": [remove_client(client) for client in MCP_SETUP_CLIENTS],
+                })
+            else:
+                _print(setup_all(args.roots, strict_roots=args.strict_roots))
+            return 0
         if args.remove:
             _print(remove_client(args.client, config=args.config))
-            return 0
-        from .mcp_contract import resolve_launch_roots
-
-        roots = [str(path) for path in resolve_launch_roots(args.roots)]
-        _print(setup_client(args.client, roots[0], config=args.config))
+        else:
+            _print(setup_client(args.client, args.roots, config=args.config, strict_roots=args.strict_roots))
         return 0
     from .mcp_contract import resolve_launch_roots
 
     try:
-        roots = [str(path) for path in resolve_launch_roots(args.roots)]
+        roots = [
+            str(path)
+            for path in resolve_launch_roots(args.roots, strict=args.strict_roots)
+        ]
         db_path = _db_path(args)
         status = current_sdk_status()
         if not status["usable"] and os.environ.get("RSO_MCP_IN_RUNTIME") != "1":
@@ -544,7 +565,7 @@ def command_mcp(args: argparse.Namespace) -> int:
     except Exception as error:
         _emit_stdio_startup_failure(error)
         raise
-    serve_stdio(db_path=db_path, roots=roots)
+    serve_stdio(db_path=db_path, roots=roots, strict_roots=args.strict_roots)
     return 0
 
 
@@ -786,7 +807,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--root",
         action="append",
         dest="roots",
-        help="Allowed project folder (repeatable). Required to serve. Not a user profile.",
+        help=(
+            "Launch root (repeatable). Optional: without it the host's working directory "
+            "is used when bounded, and tool calls may name any bounded project folder."
+        ),
+    )
+    mcp_parser.add_argument(
+        "--strict-roots",
+        action="store_true",
+        help="Serve only folders under --root (or the working directory); refuse any other path",
     )
     mcp_parser.add_argument(
         "--install-runtime",
@@ -801,7 +830,7 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_parser.add_argument(
         "--setup",
         action="store_true",
-        help="Write an RSO-owned MCP entry for --client (Codex, Claude Code, or Gemini/Antigravity)",
+        help="Write an RSO-owned MCP entry for --client. No --root is pinned unless given.",
     )
     mcp_parser.add_argument(
         "--remove",
@@ -810,8 +839,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     mcp_parser.add_argument(
         "--client",
-        choices=("codex", "claude-code", "gemini", "antigravity"),
-        help="Host to configure: Codex, Claude Code, Gemini CLI, or Antigravity (separate host configs)",
+        choices=(*MCP_SETUP_CLIENTS, "all"),
+        help="Host to configure, or all of them: " + ", ".join(MCP_SETUP_CLIENTS),
     )
     mcp_parser.add_argument(
         "--config",

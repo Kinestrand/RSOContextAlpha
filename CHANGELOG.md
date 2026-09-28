@@ -1,5 +1,50 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- MCP access is open by default so any agent host can use RSO on any project
+  folder. Every host entry written by setup used to pin the folders named at
+  setup time, and the server refused every other path, which is why agents in
+  other projects reported that they could not run RSO. A tool call may now name
+  any bounded project folder. `--strict-roots` restores launch-only access.
+- One bounded-folder rule now covers every MCP path, including launch roots. It
+  adds filesystem roots, folders that contain a user profile, hidden profile
+  folders, operating-system folders, and the ledger home to the existing
+  profile, Desktop, Documents, Downloads, and OneDrive refusals.
+- The server starts however a host launches it. A desktop app that starts
+  servers from its install folder or the user profile used to get a startup
+  error; that directory is now just not used as a root.
+- `mcp --setup` pins no `--root` unless one is given. A rewrite keeps the
+  user's keys on the JSON entry and Codex tool-approval tables.
+
+### Fixed
+
+- `rso_query`, `rso_check`, and `rso_expand` could return an empty
+  `insufficient_budget` packet at the default byte budget. JSON escaping made
+  the wire result a few bytes larger than the packet, and the shrink loop
+  stepped down too slowly to get under before falling back to 256 bytes. The
+  inner budget is now found by binary search, so the largest packet that fits
+  is returned.
+- A host that replaces the child environment left Git off `PATH`. Ingest then
+  stopped with a generic tool error, and project identity fell back to a
+  non-Git key, so one checkout could register as two projects. RSO now finds
+  Git through `RSO_GIT`, `PATH`, or the standard Windows install folders, and
+  setup writes `RSO_GIT` into the entry.
+- The profile refusal no longer depends on `USERPROFILE` or `HOME`; it asks the
+  operating system for the profile folder. Another account's profile (such as
+  `C:\Users\Public`) is refused as well.
+- Every tool failure now reports its reason. Unexpected exceptions used to
+  surface as "Error executing tool" with no cause.
+
+### Added
+
+- `mcp --setup --client all` configures every installed host and reports the
+  ones it skipped. New hosts: `claude-desktop`, `cursor`, `windsurf`.
+- `--client opencode` is accepted by the CLI; the parser used to reject it even
+  though setup supported it. `doctor` reports every supported host.
+
 ## 0.9.3
 
 ### Added

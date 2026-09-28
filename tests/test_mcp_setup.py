@@ -137,6 +137,87 @@ class McpSetupTests(unittest.TestCase):
         self.assertEqual(result["launch"]["args"][-1], str(root.resolve()))
         self.assertIn(" ", str(root))
 
+    def test_generated_env_carries_git_for_hosts_that_strip_path(self):
+        """Ingest stops and identity splits when a replaced PATH loses Git."""
+        from rso_context.config import git_executable
+
+        config = Path(self.temp.name) / "claude.json"
+        setup_client("claude-code", config=config)
+        env = json.loads(config.read_text(encoding="utf-8"))["mcpServers"]["rso-context"]["env"]
+        found = git_executable()
+        if found != "git":
+            self.assertEqual(env["RSO_GIT"], found)
+            with patch.dict(os.environ, {"PATH": "", "RSO_GIT": env["RSO_GIT"]}):
+                self.assertEqual(git_executable(), env["RSO_GIT"])
+
+    def test_setup_without_root_writes_a_portable_entry(self):
+        """One entry must serve every folder, so setup pins no --root by default."""
+        config = Path(self.temp.name) / "claude.json"
+        result = setup_client("claude-code", config=config)
+        entry = json.loads(config.read_text(encoding="utf-8"))["mcpServers"]["rso-context"]
+        self.assertNotIn("--root", entry["args"])
+        self.assertNotIn("--strict-roots", entry["args"])
+        self.assertEqual(result["access"], "open")
+        self.assertEqual(result["roots"], [])
+        strict = setup_client("claude-code", self.root, config=config, strict_roots=True)
+        self.assertEqual(strict["launch"]["args"][-1], "--strict-roots")
+        with self.assertRaises(ValueError):
+            setup_client("claude-code", config=config, strict_roots=True)
+
+    def test_json_setup_keeps_user_keys_on_the_rso_entry(self):
+        config = Path(self.temp.name) / "cursor.json"
+        config.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "rso-context": {
+                            "command": "old",
+                            "args": ["--root", "x"],
+                            "disabled": False,
+                            "autoApprove": ["rso_query"],
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        setup_client("cursor", config=config)
+        entry = json.loads(config.read_text(encoding="utf-8"))["mcpServers"]["rso-context"]
+        self.assertEqual(entry["autoApprove"], ["rso_query"])
+        self.assertIs(entry["disabled"], False)
+        self.assertNotIn("--root", entry["args"])
+
+    def test_codex_setup_keeps_tool_approval_tables(self):
+        config = Path(self.temp.name) / "codex.toml"
+        config.write_text(
+            '[mcp_servers.rso-context]\ncommand = "old"\nargs = ["--root", "x"]\n\n'
+            '[mcp_servers.rso-context.env]\nOLD = "1"\n\n'
+            '[mcp_servers.rso-context.tools.rso_query]\napproval_mode = "approve"\n\n'
+            '[mcp_servers.graft]\ncommand = "npx"\n',
+            encoding="utf-8",
+        )
+        setup_client("codex", config=config)
+        text = config.read_text(encoding="utf-8")
+        self.assertIn("[mcp_servers.rso-context.tools.rso_query]", text)
+        self.assertIn('approval_mode = "approve"', text)
+        self.assertIn("[mcp_servers.graft]", text)
+        self.assertNotIn('OLD = "1"', text)
+        self.assertNotIn('"--root"', text)
+        self.assertEqual(text.count("[mcp_servers.rso-context]"), 1)
+        remove_client("codex", config=config)
+        self.assertNotIn("rso-context", config.read_text(encoding="utf-8"))
+
+    def test_cli_accepts_every_supported_client(self):
+        for client in ("opencode", "claude-desktop", "cursor", "windsurf"):
+            with self.subTest(client=client):
+                config = Path(self.temp.name) / f"{client}.json"
+                self.assertEqual(main(["mcp", "--setup", "--client", client, "--config", str(config)]), 0)
+                self.assertIn("rso-context", config.read_text(encoding="utf-8"))
+        self.assertEqual(
+            main(["mcp", "--setup", "--client", "all", "--config", str(Path(self.temp.name) / "x.json")]),
+            2,
+        )
+
     def test_cli_setup_and_remove_use_explicit_config(self):
         config = Path(self.temp.name) / "codex.toml"
         self.assertEqual(

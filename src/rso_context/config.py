@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -128,6 +129,38 @@ def is_sensitive_path(path: Path) -> bool:
     if name.startswith(".env."):
         return True
     return bool(SENSITIVE_NAME_PATTERN.search(name))
+
+
+def git_executable() -> str:
+    """The Git program to run, found even when a host strips PATH.
+
+    Some MCP hosts replace the child environment with the entry's own env
+    block, which leaves PATH without Git. Ingest then stops (it never walks a
+    repository without Git) and identity falls back to a non-Git key, so the
+    same checkout would register as a different project on that host.
+    RSO_GIT wins, then PATH, then the standard Windows install folders.
+    """
+    configured = os.environ.get("RSO_GIT")
+    if configured and Path(configured).is_file():
+        return configured
+    found = shutil.which("git")
+    if found:
+        return found
+    if os.name == "nt":
+        bases = [
+            os.environ.get("ProgramW6432"),
+            os.environ.get("ProgramFiles"),
+            os.environ.get("ProgramFiles(x86)"),
+            os.environ.get("LOCALAPPDATA") and str(Path(os.environ["LOCALAPPDATA"]) / "Programs"),
+            os.environ.get("SystemDrive", "C:") + "\\Program Files",
+        ]
+        for base in bases:
+            if not base:
+                continue
+            candidate = Path(base) / "Git" / "cmd" / "git.exe"
+            if candidate.is_file():
+                return str(candidate)
+    return "git"
 
 
 def default_home() -> Path:

@@ -67,7 +67,9 @@ Write-Output 'pipeline Unicode preserved'
 
     def test_doctor_is_not_ready_without_git(self):
         with tempfile.TemporaryDirectory() as temp, contextlib.redirect_stdout(io.StringIO()) as output:
-            with patch("rso_context.cli.shutil.which", return_value=None):
+            with patch("rso_context.cli.shutil.which", return_value=None), patch(
+                "rso_context.config.git_executable", return_value="git"
+            ):
                 code = main(["--db", str(Path(temp) / "doctor.sqlite3"), "doctor"])
             self.assertEqual(code, 1)
             self.assertFalse(json.loads(output.getvalue())["ready"])

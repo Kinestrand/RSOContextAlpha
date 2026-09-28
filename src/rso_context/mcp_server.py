@@ -10,6 +10,8 @@ from . import __version__
 from .db import Database, SchemaVersionError
 from .ingest import ingest_project
 from .mcp_contract import (
+    ACCESS_OPEN,
+    ACCESS_STRICT,
     PROTOCOL_ID,
     TOOL_NAMES,
     alias_is_visible,
@@ -27,10 +29,13 @@ from .resume import resume_context
 
 INSTRUCTIONS = (
     "Local RSO Context evidence ledger over bounded folders. "
-    "Launch with --db and one or more --root values. "
+    "Pass the absolute path of the project folder you are working in as path. "
+    "Call rso_use on a folder once before rso_query, rso_check, or rso_resume. "
+    "path must be a bounded project folder, never a user profile, Documents, "
+    "Downloads, a drive root, or a system folder; under --strict-roots it must "
+    "also sit under a launch --root. "
     "Tools do not accept a database path. "
-    "path arguments must stay under those roots. "
-    "agent is attribution, not authority. "
+    "agent is attribution, not authority; use your own agent name. "
     "rso_use and rso_query write to the ledger. "
     "rso_query returns a compact packet; rso_expand recovers omitted evidence. "
     "rso_check answers typed questions with evidence statuses, not probabilities; it also writes. "
@@ -61,8 +66,10 @@ def _invoke(error_type, fn):
         return fn()
     except error_type:
         raise
-    except (ValueError, OSError, KeyError, TypeError, SchemaVersionError, sqlite3.OperationalError) as error:
+    except (ValueError, OSError, KeyError, TypeError, SchemaVersionError, sqlite3.Error, RuntimeError) as error:
         _raise_tool(error_type, error)
+    except Exception as error:  # noqa: BLE001 - an agent must see why, not a generic failure
+        raise error_type(f"{type(error).__name__}: {error}") from error
 
 
 def _payload_json(payload: dict) -> str:
@@ -84,20 +91,39 @@ def tool_result_wire_bytes(payload: dict) -> int:
     return len(json.dumps(message, ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
 
 
+def fit_to_wire_budget(build, byte_budget: int) -> dict:
+    """Largest build(inner) whose MCP wire result fits byte_budget.
+
+    The wire result is larger than the packet's own byte count because JSON
+    escaping inflates the text, and packet size moves in whole evidence spans,
+    so the inner budget is found by binary search. Stepping down by the
+    overshoot stalled on a packet a few bytes over and fell back to an empty
+    256-byte packet, which agents read as RSO finding nothing.
+    """
+    budget = max(256, int(byte_budget))
+    payload = build(budget)
+    if tool_result_wire_bytes(payload) <= budget:
+        return payload
+    low, high = 256, budget - 1
+    best = None
+    while low <= high:
+        inner = (low + high) // 2
+        candidate = build(inner)
+        if tool_result_wire_bytes(candidate) <= budget:
+            best = candidate
+            low = inner + 1
+        else:
+            high = inner - 1
+    return best if best is not None else build(256)
+
+
 def fit_payload_to_wire_budget(source: dict, *, byte_budget: int, compact: bool = True) -> dict:
     """Shrink a compact packet until the MCP wire result is within byte_budget."""
-    budget = max(256, int(byte_budget))
-    payload = compact_packet(source, byte_budget=budget) if compact else dict(source)
-    if not compact and tool_result_wire_bytes(payload) <= budget:
-        return payload
-    inner = budget
-    for _ in range(16):
-        payload = compact_packet(source, byte_budget=inner)
-        size = tool_result_wire_bytes(payload)
-        if size <= budget:
+    if not compact:
+        payload = dict(source)
+        if tool_result_wire_bytes(payload) <= max(256, int(byte_budget)):
             return payload
-        inner = max(256, inner - (size - budget) - 32)
-    return compact_packet(source, byte_budget=256)
+    return fit_to_wire_budget(lambda inner: compact_packet(source, byte_budget=inner), byte_budget)
 
 
 def project_ids_visible_to_roots(database: Database, roots: list[Path]) -> set[str]:
@@ -150,12 +176,20 @@ def explain_packet(database: Database, packet_hash: str, roots: list[Path]) -> d
     return result
 
 
-def build_server(*, db_path: str, roots: list[str]):
-    """Build the stdio MCP server bound to one database and explicit roots."""
+def build_server(*, db_path: str, roots: list[str], strict_roots: bool = False):
+    """Build the stdio MCP server bound to one database.
+
+    Launch roots are always served. Unless strict_roots is set, a tool call may
+    also name any other bounded project folder; each folder used that way is
+    remembered for this server process so explain and expand can reach its
+    packets and evidence.
+    """
     from mcp.server import MCPServer
 
     error_type = _tool_error()
-    allowed = bind_roots(roots)
+    access = ACCESS_STRICT if strict_roots else ACCESS_OPEN
+    allowed = bind_roots(roots) if roots else []
+    granted: list[Path] = []
     database = _database(db_path)
     ledger = Path(db_path).expanduser().resolve()
 
@@ -167,7 +201,18 @@ def build_server(*, db_path: str, roots: list[str]):
     )
 
     def workspace(path: str) -> str:
-        return str(resolve_workspace_path(path, allowed, database_path=ledger))
+        if access == ACCESS_STRICT and not allowed:
+            raise ValueError(
+                "This server runs with --strict-roots and has no launch root. "
+                "Its host must start it with --root <project> or from the project folder."
+            )
+        resolved = resolve_workspace_path(path, allowed, database_path=ledger, access=access)
+        if not any(alias_is_visible(resolved, [root]) for root in allowed + granted):
+            granted.append(resolved)
+        return str(resolved)
+
+    def visible() -> list[Path]:
+        return allowed + granted
 
     @mcp.tool()
     def rso_use(path: str, agent: str) -> dict:
@@ -209,7 +254,7 @@ def build_server(*, db_path: str, roots: list[str]):
                     limit=limit,
                     token_budget=token_budget,
                 ),
-                allowed,
+                visible(),
             )
             fitted = fit_payload_to_wire_budget(packet, byte_budget=byte_budget, compact=compact)
             return call_tool_result(fitted)
@@ -228,16 +273,8 @@ def build_server(*, db_path: str, roots: list[str]):
         def run():
             resolved = workspace(path)
             attributed = require_agent(agent)
-            full = check_questions(database, questions, path=resolved, agent=attributed, roots=allowed)
-            budget = max(256, int(byte_budget))
-            inner = budget
-            fitted = fit_check(full, inner)
-            for _ in range(16):
-                if tool_result_wire_bytes(fitted) <= budget:
-                    break
-                inner = max(256, inner - (tool_result_wire_bytes(fitted) - budget) - 32)
-                fitted = fit_check(full, inner)
-            return call_tool_result(fitted)
+            full = check_questions(database, questions, path=resolved, agent=attributed, roots=visible())
+            return call_tool_result(fit_to_wire_budget(lambda inner: fit_check(full, inner), byte_budget))
 
         return _invoke(error_type, run)
 
@@ -255,7 +292,7 @@ def build_server(*, db_path: str, roots: list[str]):
     @mcp.tool()
     def rso_explain(packet_hash: str) -> dict:
         """Return a saved query packet from the launch-bound ledger if its project is in-root."""
-        return _invoke(error_type, lambda: explain_packet(database, packet_hash, allowed))
+        return _invoke(error_type, lambda: explain_packet(database, packet_hash, visible()))
 
     @mcp.tool(structured_output=False)
     def rso_expand(ref: str, max_bytes: int = Limits.compact_byte_budget):
@@ -264,15 +301,13 @@ def build_server(*, db_path: str, roots: list[str]):
         def run():
             if not str(ref).strip():
                 raise ValueError("ref is required")
-            budget = max(256, int(max_bytes))
-            inner = budget
-            payload = expand_reference(database, ref, roots=allowed, max_bytes=inner)
-            for _ in range(16):
-                if tool_result_wire_bytes(payload) <= budget:
-                    return call_tool_result(payload)
-                inner = max(256, inner - (tool_result_wire_bytes(payload) - budget) - 32)
-                payload = expand_reference(database, ref, roots=allowed, max_bytes=inner)
-            return call_tool_result(expand_reference(database, ref, roots=allowed, max_bytes=256))
+            roots = visible()
+            return call_tool_result(
+                fit_to_wire_budget(
+                    lambda inner: expand_reference(database, ref, roots=roots, max_bytes=inner),
+                    max_bytes,
+                )
+            )
 
         return _invoke(error_type, run)
 
@@ -291,10 +326,11 @@ def build_server(*, db_path: str, roots: list[str]):
         "version": __version__,
         "db": str(Path(db_path)),
         "roots": [str(path) for path in allowed],
+        "access": access,
     }
     return mcp
 
 
-def serve_stdio(*, db_path: str, roots: list[str]) -> None:
+def serve_stdio(*, db_path: str, roots: list[str], strict_roots: bool = False) -> None:
     """Block on stdin/stdout. stdout is the MCP wire."""
-    build_server(db_path=db_path, roots=roots).run()
+    build_server(db_path=db_path, roots=roots, strict_roots=strict_roots).run()

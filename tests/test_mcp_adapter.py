@@ -19,6 +19,8 @@ from rso_context.cli import (
 from rso_context.db import Database
 from rso_context.ingest import ingest_project
 from rso_context.mcp_contract import (
+    ACCESS_OPEN,
+    ACCESS_STRICT,
     resolve_launch_roots,
     TOOL_NAMES,
     assert_bounded_root,
@@ -75,21 +77,19 @@ class McpContractTests(unittest.TestCase):
     def test_parser_exposes_mcp_without_serving(self):
         self.assertEqual(main(["mcp", "--status"]), 0)
 
-    def test_serve_without_root_fails_from_an_unbounded_directory(self):
-        """No --root means the working directory, which must still be a bounded folder.
+    def test_strict_serve_without_root_fails_from_an_unbounded_directory(self):
+        """Under --strict-roots the working directory must still be a bounded folder.
 
-        Serving with no --root used to be refused outright. It now binds the
-        directory the host launched the server in, so one config entry serves
-        every project. The refusal moves rather than disappears: an unbounded
-        working directory is still rejected before anything is served.
+        The default open access starts from any directory instead (see
+        McpSharedLedgerTests.test_open_access_serves_folders_outside_every_root).
         """
         original = os.getcwd()
         with tempfile.TemporaryDirectory() as tmp:
             db = str(Path(tmp) / "context.sqlite3")
             os.chdir(Path.home())
             try:
-                self.assertEqual(main(["--db", db, "mcp"]), 2)
-                self.assertEqual(main(["mcp", "--db", db]), 2)
+                self.assertEqual(main(["--db", db, "mcp", "--strict-roots"]), 2)
+                self.assertEqual(main(["mcp", "--db", db, "--strict-roots"]), 2)
             finally:
                 os.chdir(original)
 
@@ -158,9 +158,87 @@ class McpContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             resolve_launch_roots(None, cwd=home / "Documents")
 
+    def test_open_launch_from_an_unbounded_directory_has_no_roots(self):
+        """A desktop host launched from the profile must still get a server."""
+        self.assertEqual(resolve_launch_roots(None, cwd=Path.home(), strict=False), [])
+        with tempfile.TemporaryDirectory() as tmp:
+            bound = resolve_launch_roots(None, cwd=tmp, strict=False)
+            self.assertEqual(bound, [Path(tmp).resolve()])
+
     def test_user_profile_is_not_a_root(self):
         with self.assertRaises(ValueError):
             assert_bounded_root(Path.home())
+
+    def test_broad_and_system_folders_are_not_roots(self):
+        home = Path.home().resolve()
+        refused = [Path(home.anchor), home.parent]
+        for name in ("SystemRoot", "ProgramFiles"):
+            if os.environ.get(name):
+                refused.append(Path(os.environ[name]))
+        if os.name != "nt":
+            refused.append(Path("/etc"))
+        for folder in refused:
+            if folder.is_dir():
+                with self.subTest(folder=str(folder)):
+                    with self.assertRaises(ValueError):
+                        assert_bounded_root(folder)
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(assert_bounded_root(tmp), Path(tmp).resolve())
+
+    def test_open_access_accepts_a_bounded_folder_outside_every_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            launched = base / "launched"
+            other = base / "other project"
+            launched.mkdir()
+            other.mkdir()
+            roots = bind_roots([str(launched)])
+            self.assertEqual(
+                resolve_workspace_path(other, roots, access=ACCESS_OPEN),
+                other.resolve(),
+            )
+            self.assertEqual(resolve_workspace_path(other, [], access=ACCESS_OPEN), other.resolve())
+            with self.assertRaises(ValueError):
+                resolve_workspace_path(other, roots, access=ACCESS_STRICT)
+            with self.assertRaises(ValueError):
+                resolve_workspace_path(other, roots)
+
+    def test_profile_refusal_survives_an_environment_without_profile_variables(self):
+        """A host that strips USERPROFILE/HOME must not turn open access onto the profile."""
+        home = Path.home().resolve()
+        stripped = {
+            key: value
+            for key, value in os.environ.items()
+            if key.upper() not in {"USERPROFILE", "HOME", "HOMEDRIVE", "HOMEPATH"}
+        }
+        with patch.dict(os.environ, stripped, clear=True):
+            with patch.object(Path, "home", side_effect=RuntimeError("no home")):
+                with self.assertRaises(ValueError):
+                    resolve_workspace_path(home, [], access=ACCESS_OPEN)
+
+    def test_another_accounts_profile_is_refused(self):
+        home = Path.home().resolve()
+        siblings = [item for item in home.parent.iterdir() if item.is_dir() and item != home][:3]
+        for folder in siblings:
+            with self.subTest(folder=str(folder)):
+                with self.assertRaises(ValueError):
+                    resolve_workspace_path(folder, [], access=ACCESS_OPEN)
+
+    def test_open_access_still_refuses_profiles_and_broad_folders(self):
+        home = Path.home().resolve()
+        candidates = [home, home.parent, Path(home.anchor), home / "Documents", home / "Downloads"]
+        with tempfile.TemporaryDirectory() as tmp:
+            for folder in candidates:
+                if not folder.is_dir():
+                    continue
+                with self.subTest(folder=str(folder)):
+                    with self.assertRaises(ValueError):
+                        resolve_workspace_path(folder, [], access=ACCESS_OPEN)
+            ledger_home = Path(tmp) / "ledger"
+            ledger_home.mkdir()
+            with patch.dict(os.environ, {"RSO_CONTEXT_HOME": str(ledger_home)}):
+                with self.assertRaises(ValueError):
+                    resolve_workspace_path(ledger_home, [], access=ACCESS_OPEN)
 
     def test_workspace_path_rejects_files_and_the_ledger(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -410,11 +488,19 @@ db, root, src, mode = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 env = os.environ.copy()
 env["PYTHONPATH"] = src
 env["RSO_MCP_IN_RUNTIME"] = "1"
+launch = ["-X", "utf8", "-m", "rso_context", "mcp", "--db", db, "--root", root]
+launch_cwd = str(Path(src).parent)
+if mode == "errors-strict":
+    launch.append("--strict-roots")
+if mode == "open":
+    # A desktop host: no --root, started from the user profile.
+    launch = ["-X", "utf8", "-m", "rso_context", "mcp", "--db", db]
+    launch_cwd = str(Path.home())
 params = StdioServerParameters(
     command=sys.executable,
-    args=["-X", "utf8", "-m", "rso_context", "mcp", "--db", db, "--root", root],
+    args=launch,
     env=env,
-    cwd=str(Path(src).parent),
+    cwd=launch_cwd,
 )
 
 def dump(result):
@@ -453,7 +539,13 @@ async def main():
         resumed = await call("rso_resume", {"path": root, "agent": "beta"})
         print(json.dumps({"use": used, "alpha": alpha, "beta": beta, "resume": resumed}, sort_keys=True))
         return
-    if mode == "errors":
+    if mode == "open":
+        used = await call("rso_use", {"path": root, "agent": "alpha"})
+        queried = await call("rso_query", {"query": "widgets", "path": root, "agent": "alpha"})
+        profile = await call("rso_use", {"path": str(Path.home()), "agent": "alpha"})
+        print(json.dumps({"use": used, "query": queried, "profile": profile}, sort_keys=True))
+        return
+    if mode in ("errors", "errors-strict"):
         outside = str(Path(root).resolve().parent / "outside")
         print(json.dumps({
             "outside": await call("rso_query", {"query": "widgets", "path": outside, "agent": "alpha"}),
@@ -531,10 +623,50 @@ class McpSharedLedgerTests(unittest.TestCase):
             )
             for key in ("outside", "empty_agent", "empty_query", "resume_missing"):
                 self.assertTrue(payload[key]["is_error"], payload[key])
-            self.assertIn("outside the server's allowed roots", payload["outside"]["text"])
+            # Open access reaches the outside folder; it is simply not registered yet.
+            self.assertIn("No registered project", payload["outside"]["text"])
             self.assertIn("agent is required", payload["empty_agent"]["text"])
             self.assertIn("query is required", payload["empty_query"]["text"])
             self.assertIn("No registered project", payload["resume_missing"]["text"])
+            strict = _run_isolated(
+                self.python,
+                SHARED_LEDGER_PROBE,
+                str(db),
+                str(workspace),
+                str(ROOT / "src"),
+                "errors-strict",
+            )
+            self.assertTrue(strict["outside"]["is_error"], strict["outside"])
+            self.assertIn("outside the server's allowed roots", strict["outside"]["text"])
+
+    def test_open_access_serves_folders_outside_every_root(self):
+        """A host that starts the server with no --root from the profile still works.
+
+        This is how Claude Desktop and other app hosts launch stdio servers. The
+        server must start, serve the project folder the agent names, and still
+        refuse the profile itself.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "any project"
+            workspace.mkdir()
+            (workspace / "AGENTS.md").write_text("Decision: widgets must stay blue.\n", encoding="utf-8")
+            db = Path(tmp) / "context.sqlite3"
+            payload = _run_isolated(
+                self.python,
+                SHARED_LEDGER_PROBE,
+                str(db),
+                str(workspace),
+                str(ROOT / "src"),
+                "open",
+                timeout=120,
+            )
+            self.assertFalse(payload["use"]["is_error"], payload["use"])
+            self.assertFalse(payload["query"]["is_error"], payload["query"])
+            query = payload["query"]["structured"]
+            self.assertEqual(query["requirements"][0]["status"], "evidence_found")
+            self.assertIn("blue", query["evidence"][0]["text"])
+            self.assertTrue(payload["profile"]["is_error"], payload["profile"])
+            self.assertIn("user profile", payload["profile"]["text"])
 
 
 class McpStatusTests(unittest.TestCase):
@@ -544,6 +676,39 @@ class McpStatusTests(unittest.TestCase):
         self.assertEqual(status["sdk_requirement"], "mcp==2.2.0")
         current = current_sdk_status()
         self.assertIn("usable", current)
+
+
+class WireFitTests(unittest.TestCase):
+    """Fitting needs the MCP SDK types, so it runs in the isolated runtime."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.python = ensure_isolated_python()
+
+    def test_fit_finds_the_largest_packet_when_sizes_move_in_big_steps(self):
+        """A packet a few bytes over used to collapse to an empty 256-byte result."""
+        probe = r"""
+import json
+from rso_context.mcp_server import fit_to_wire_budget, tool_result_wire_bytes
+
+def build(inner):
+    # Evidence arrives in whole 1500-byte spans, like real plates.
+    spans = max(0, (inner - 300) // 1500)
+    return {"schema": "probe", "evidence": ["x" * 1500] * spans, "inner": inner}
+
+base = tool_result_wire_bytes(build(12000))
+budget = base - 15
+fitted = fit_to_wire_budget(build, budget)
+print(json.dumps({
+    "full_spans": len(build(12000)["evidence"]),
+    "budget": budget,
+    "spans": len(fitted["evidence"]),
+    "size": tool_result_wire_bytes(fitted),
+}))
+"""
+        payload = _run_isolated(self.python, probe)
+        self.assertLessEqual(payload["size"], payload["budget"])
+        self.assertEqual(payload["spans"], payload["full_spans"] - 1)
 
 
 if __name__ == "__main__":
