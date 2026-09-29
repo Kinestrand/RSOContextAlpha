@@ -44,7 +44,7 @@ coding agent to have it perform setup.
 
 Replace angle-bracket placeholders before running commands. `use` registers the folder, ingests its files, and returns a resume packet. `query` retrieves evidence for the actual task.
 
-MCP permissions and searchable context are separate. A launch `--root` permits access to a folder; it does not register or ingest it. Call `rso_use` for each permitted project before querying it. Re-ingest after file changes. Copies keep their own project identity; RSO does not copy or update their source files.
+MCP access and searchable context are separate. Reaching a folder through MCP does not register or ingest it. Call `rso_use` for each project before querying it. Re-ingest after file changes. Copies keep their own project identity; RSO does not copy or update their source files.
 
 ## What you can do
 
@@ -55,7 +55,7 @@ MCP permissions and searchable context are separate. A launch `--root` permits a
 | Check where an answer came from | Inspect source spans and hashes; use `explain` for a saved packet |
 | Pick up an edited requirement | Run `use` again; unchanged files are skipped |
 | Separate suggestions from approval | Use `propose`; reserve validation for a named, authorized decision |
-| Integrate through MCP | Configure bounded launch roots and call `rso_use` before querying |
+| Integrate through MCP | Run `rso-context mcp --setup --client all`, then call `rso_use` on the project folder before querying |
 | Inspect the ledger locally | Run the optional read-only localhost viewer with `admin` |
 
 ## What's new in 0.9.3

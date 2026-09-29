@@ -196,22 +196,23 @@ Optional MCP:
 
 ```text
 rso-context mcp --install-runtime
-rso-context mcp --setup --client codex --root <workspace>
-rso-context mcp --setup --client claude-code --root <workspace>
+rso-context mcp --setup --client all
 rso-context mcp --remove --client claude-code
 ```
 
-`--setup` / `--remove` touch only the `rso-context` host entry. Pass `--config <file>` for isolated files. MCP `rso_query` returns `rso-mcp-packet/v1`; CLI `query` stays `rso-context-packet/v2` unless `--compact` is used. `doctor` and `mcp --status` treat the isolated runtime as ready only when `runtime_mcp_version` is exactly `2.2.0`.
+`--setup` / `--remove` touch only the `rso-context` host entry. The entry pins no `--root`; tool calls may name any bounded project folder unless the host was set up with `--strict-roots`. Pass `--config <file>` for isolated files. MCP `rso_query` returns `rso-mcp-packet/v1`; CLI `query` stays `rso-context-packet/v2` unless `--compact` is used. `doctor` and `mcp --status` treat the isolated runtime as ready only when `runtime_mcp_version` is exactly `2.2.0`.
 
 ## 9. Troubleshooting
 
-An MCP launch allowlist controls access; it does not populate the ledger. Use `rso_use` separately for each permitted project before `rso_query`. Refresh ingestion after edits. Updating an index does not update or synchronize source files between project copies. See [VERIFICATION.md](VERIFICATION.md) for tested host behavior.
+MCP access does not populate the ledger. Use `rso_use` separately for each project before `rso_query`. Refresh ingestion after edits. Updating an index does not update or synchronize source files between project copies. See [VERIFICATION.md](VERIFICATION.md) for tested host behavior.
 
 | Symptom | Action |
 | --- | --- |
 | Command isn't found | Use the installed command's full path from INSTALL.md, then add its `bin` folder to PATH |
 | MCP says no registered project | Call `rso_use` with that permitted bounded path and the current agent name, then retry the query |
-| MCP refuses a path outside its roots | Check the exact project path and configured bounded roots; registration cannot override launch permissions |
+| MCP refuses a path outside its roots | The host was set up with `--strict-roots`. Check the exact project path and the configured roots; registration cannot override launch permissions |
+| MCP refuses a profile, Documents, or drive root | Pass the project folder itself, not a folder that contains many projects |
+| An agent says the RSO tools are missing | Run `rso-context mcp --setup --client all`, then restart that host |
 | Python launcher is missing or too old | Install Python 3.11+ and rerun the installer with that interpreter |
 | `doctor` isn't ready | Read its JSON; check Git on PATH, FTS5 availability, and database permissions |
 | File doesn't appear | Check Git tracking, extension, size, exclusions, and the intended project path; run `ingest` |
@@ -335,8 +336,9 @@ become unreproducible without any file changing.
 
 Configure MCP only after the CLI works. See
 [installation](INSTALL.md#optional-mcp-adapter) for runtime and host setup.
-The launch command determines the database and allowed roots; tool calls cannot
-select another database. Use a separate launch with a scratch database for tests.
+The launch command determines the database; tool calls cannot select another
+database. Tool calls may name any bounded project folder unless the launch uses
+`--strict-roots`. Use a separate launch with a scratch database for tests.
 
 | Tool | Purpose |
 | --- | --- |

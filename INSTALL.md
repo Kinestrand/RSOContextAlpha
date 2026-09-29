@@ -138,23 +138,31 @@ rso-context mcp --install-runtime
 rso-context mcp --status
 ```
 
-Setup writes only an RSO-owned `rso-context` server entry. Codex uses `config.toml` `[mcp_servers.rso-context]`. Claude Code uses `mcpServers.rso-context` in `.claude.json`. Gemini CLI uses `~/.gemini/settings.json` and Antigravity uses `~/.gemini/config/mcp_config.json` (override with `RSO_MCP_GEMINI_CONFIG` or `RSO_MCP_ANTIGRAVITY_CONFIG`); setting up or removing one leaves the other alone. OpenCode uses `mcp.rso-context` in `~/.config/opencode/opencode.json`, or the `.jsonc` beside it when that file already exists (override with `RSO_MCP_OPENCODE_CONFIG`); its entry is a `command` list rather than a command plus args. Repeat setup replaces that entry and leaves other servers in place. Removal deletes only `rso-context`.
+Setup writes only an RSO-owned `rso-context` server entry. Codex uses `config.toml` `[mcp_servers.rso-context]` and keeps any `[mcp_servers.rso-context.tools.*]` approval tables across a rewrite. Claude Code uses `mcpServers.rso-context` in `.claude.json`. Claude Desktop, Cursor, and Windsurf use `mcpServers.rso-context` in `claude_desktop_config.json`, `~/.cursor/mcp.json`, and `~/.codeium/windsurf/mcp_config.json` (override with `RSO_MCP_CLAUDE_DESKTOP_CONFIG`, `RSO_MCP_CURSOR_CONFIG`, or `RSO_MCP_WINDSURF_CONFIG`). A JSON rewrite keeps keys you added to the entry, such as `autoApprove`. Gemini CLI uses `~/.gemini/settings.json` and Antigravity uses `~/.gemini/config/mcp_config.json` (override with `RSO_MCP_GEMINI_CONFIG` or `RSO_MCP_ANTIGRAVITY_CONFIG`); setting up or removing one leaves the other alone. OpenCode uses `mcp.rso-context` in `~/.config/opencode/opencode.json`, or the `.jsonc` beside it when that file already exists (override with `RSO_MCP_OPENCODE_CONFIG`); its entry is a `command` list rather than a command plus args. Repeat setup replaces that entry and leaves other servers in place. Removal deletes only `rso-context`.
 
 ```text
-rso-context mcp --setup --client codex --root <bounded-project-folder>
-rso-context mcp --setup --client claude-code --root <bounded-project-folder>
-rso-context mcp --setup --client gemini --root <bounded-project-folder>
-rso-context mcp --setup --client antigravity --root <bounded-project-folder>
-rso-context mcp --setup --client opencode --root <bounded-project-folder>
+rso-context mcp --setup --client all
+rso-context mcp --setup --client codex
 rso-context mcp --remove --client codex
 ```
 
-`--root` may be omitted, in which case setup uses the current directory. A
-launch with no `--root` at all binds the directory the host started the server
-in, which is the project the user opened, so one configured entry covers every
-project without a config edit per folder. The bound is unchanged: an unbounded
-working directory such as a user profile or Documents is refused before
-anything is served, and `--root` still wins when given.
+`--client all` configures every supported host whose config folder already
+exists and lists the ones it skipped. Name one host (`codex`, `claude-code`,
+`claude-desktop`, `cursor`, `windsurf`, `gemini`, `antigravity`, `opencode`) to
+configure only that one. Restart the host afterwards.
+
+The entry pins no `--root`, so one entry serves every project on that host.
+Each tool call names the project folder in `path`, and the server accepts any
+bounded folder. It refuses a filesystem root, a user profile or a folder that
+contains one, Desktop, Documents, Downloads, a OneDrive root, a hidden profile
+folder such as `.ssh`, operating-system folders, and the ledger home. The server
+starts however the host launches it. Desktop apps often start servers from
+their install folder or the user profile; that directory is simply not used as
+a root.
+
+To restrict a host to fixed folders instead, pass `--root` (repeatable) with
+`--strict-roots`. The server then refuses every path outside those roots, and a
+launch without `--root` binds only its working directory.
 
 When the server cannot start, it writes a JSON-RPC error frame to stdout as
 well as the JSON error on stderr, with code `-32099` and a null id. A client
@@ -168,13 +176,13 @@ config's env block instead of adding to it; without those the server cannot
 find a home directory or load winsock, dies before the handshake, and the host
 reports a request timeout rather than a crash.
 
-Isolated checks must pass `--config <file>`. Do not point tests at a live user config. Setup and removal rewrite only the `rso-context` tables; other `[mcp_servers.*]` headers, including those with trailing comments, stay in place. MCP query and explain omit sources outside the launch `--root` folders. `rso_query` sends a text-only tool result so the JSON-RPC `tools/call` payload stays within `byte_budget`. Other clients can launch the stdio command printed by `doctor` under `mcp_clients.stdio`; that is not a tested compatibility claim. Tool discovery is not automatic use: still call `rso_use` then `rso_query` with the actual task.
+Isolated checks must pass `--config <file>`. Do not point tests at a live user config. Setup and removal rewrite only the `rso-context` tables; other `[mcp_servers.*]` headers, including those with trailing comments, stay in place. MCP query and explain omit sources outside the launch roots and the folders this server process has been asked to use. `rso_query` sends a text-only tool result so the JSON-RPC `tools/call` payload stays within `byte_budget`. Other clients can launch the stdio command printed by `doctor` under `mcp_clients.stdio`; that is not a tested compatibility claim. Tool discovery is not automatic use: still call `rso_use` then `rso_query` with the actual task.
 
 ## Register permitted projects
 
-Before using MCP, distinguish permission from registration: launch `--root` values permit access, but do not ingest files. Call `rso_use` with the permitted project path and current agent name, then `rso_query`. A second permitted folder needs its own `rso_use`. An unregistered-project error calls for registration and ingestion, not broader filesystem permissions. `rso_resume` alone does not ingest.
+Before using MCP, distinguish access from registration: reaching a folder does not ingest it. Call `rso_use` with the project path and current agent name, then `rso_query`. A second folder needs its own `rso_use`. An unregistered-project error calls for `rso_use`, not broader filesystem permissions. `rso_resume` alone does not ingest.
 
-Repeat `--setup` replaces the RSO entry; it does not accumulate previously configured roots. Preserve the intended bounded roots when changing a launch configuration. Restart or reconnect the host's MCP server after changing launch arguments. Registering or ingesting an already-permitted folder needs no configuration change.
+Repeat `--setup` replaces the RSO entry's command, arguments, and environment; it does not accumulate previously configured roots. Under `--strict-roots`, pass every intended root each time. Restart or reconnect the host's MCP server after changing launch arguments. Registering or ingesting an already-permitted folder needs no configuration change.
 
 Live Codex checks on Windows are recorded in [VERIFICATION.md](VERIFICATION.md). Automated macOS checks passed on the current branch; live Claude Code MCP acceptance remains unverified.
 

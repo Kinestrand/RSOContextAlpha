@@ -84,7 +84,7 @@ rso_query query="<actual user task>" path=<bounded-workspace> agent=<current-age
 
 For a narrow decision with a known answer shape (is X true, which of these options, what value does the spec state), call `rso_check` with typed `claim`, `choice`, or `value` questions instead of reading a whole packet. Branch on `answer`; treat `supported`/`selected`/`found` as evidence, not verification, and stop to ask on `disagreement`.
 
-MCP `rso_query` returns `rso-mcp-packet/v1` (compact) as text-only tool content so the JSON-RPC tools/call result stays within `byte_budget` (including a 4000-byte request). Compact packets stay within the requested byte budget, including fallback `insufficient_budget` packets. CLI `query` stays `rso-context-packet/v2` unless `--compact` is passed. Recover omitted spans with `rso_expand`, not by guessing. MCP query and explain omit sources whose files sit outside launch `--root` folders.
+MCP `rso_query` returns `rso-mcp-packet/v1` (compact) as text-only tool content so the JSON-RPC tools/call result stays within `byte_budget` (including a 4000-byte request). Compact packets stay within the requested byte budget, including fallback `insufficient_budget` packets. CLI `query` stays `rso-context-packet/v2` unless `--compact` is passed. Recover omitted spans with `rso_expand`, not by guessing. MCP query and explain omit sources outside the launch roots and the folders this server process has been asked to use.
 
 If `status` is `insufficient_budget`, an empty `evidence` list does not establish
 that retrieval found nothing. When `source_packet_hash` is present, call
@@ -102,12 +102,11 @@ Missing tools in that host do not by themselves show that RSO is unavailable.
 
 ```text
 rso-context mcp --install-runtime
-rso-context mcp --setup --client codex --root <bounded-workspace>
-rso-context mcp --setup --client claude-code --root <bounded-workspace>
+rso-context mcp --setup --client all
 rso-context mcp --remove --client codex
 ```
 
-`--setup` writes only the `rso-context` entry. `--remove` deletes only that entry. Tests and isolated checks must pass `--config <file>` so live host files are not edited. Other hosts get the stdio command from `doctor` JSON (`mcp_clients.stdio`); that is documentation, not a compatibility claim.
+`--setup --client all` writes one portable entry, with no pinned `--root`, into every installed host (Codex, Claude Code, Claude Desktop, Cursor, Windsurf, Gemini CLI, Antigravity, OpenCode). Restart the host afterwards. Pass the absolute project folder as `path` on every tool call. Any bounded folder is accepted; a user profile, Documents, Downloads, a drive root, a hidden profile folder, and system folders are refused. `--strict-roots` with `--root` limits a host to fixed folders. `--setup` writes only the `rso-context` entry. `--remove` deletes only that entry. Tests and isolated checks must pass `--config <file>` so live host files are not edited. Other hosts get the stdio command from `doctor` JSON (`mcp_clients.stdio`); that is documentation, not a compatibility claim.
 
 ## Pointers, compact, and admin
 

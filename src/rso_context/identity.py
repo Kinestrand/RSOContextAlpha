@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-from .config import PROJECT_MARKERS
+from .config import PROJECT_MARKERS, git_executable
 from .db import Database, json_text
 
 
@@ -46,7 +46,7 @@ def sha256_file(path: Path, limit: int | None = None) -> str:
 def _git(path: Path, *args: str) -> str | None:
     try:
         result = subprocess.run(
-            ["git", "-C", str(path), *args],
+            [git_executable(), "-C", str(path), *args],
             check=False,
             capture_output=True,
             text=True,
