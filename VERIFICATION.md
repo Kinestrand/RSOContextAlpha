@@ -1,5 +1,29 @@
 # RSO verification status
 
+## 0.9.4, September 28
+
+Release checks for 0.9.4 on Windows 11: 176 regression tests passed with one
+POSIX-only test skipped. GitHub Actions passed on Windows, Ubuntu, and macOS
+with Python 3.11 and 3.12 for the merge that carries these changes.
+
+Open MCP access was checked live over stdio against the isolated runtime,
+launched the way a desktop app launches servers: working directory set to the
+user profile, no `--root`, and an environment reduced to `SystemRoot` and a
+System32 `PATH`. On a folder outside every previously configured root, the
+server answered `initialize`, `rso_use` ingested 35 files, `rso_query`
+returned six evidence spans at the default budget, and `rso_use` on the user
+profile was refused. Before the Git lookup change, the same run failed in
+`rso_use` because Git was not on the reduced `PATH`.
+
+After `mcp --setup --client all` on the development machine, each written
+entry (Codex, Claude Code, Claude Desktop, Cursor, Gemini CLI, Antigravity,
+OpenCode) was started with its own command and environment from the user
+profile against a scratch database, and each returned the same `rso_use` and
+`rso_query` results. That checks the entries, not the host applications:
+acceptance inside each app after a restart is unverified, as is Windsurf,
+which was not installed. Native macOS live-agent acceptance remains
+unverified.
+
 ## 0.9.3, September 25
 
 Release checks for 0.9.3 on Windows 11 under the bundled `mcp-runtime`

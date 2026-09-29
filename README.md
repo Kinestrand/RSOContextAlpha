@@ -1,6 +1,6 @@
-# RSO Context Alpha 0.9.3
+# RSO Context Alpha 0.9.4
 
-[Download 0.9.3](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.3) ·
+[Download 0.9.4](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.4) ·
 [Quick-start](QUICKSTART.md) · [Installation](INSTALL.md) ·
 [Manual](MANUAL.md) · [Changes](CHANGELOG.md) · [Verification](VERIFICATION.md)
 
@@ -21,8 +21,8 @@ The files remain the source of truth. RSO doesn't learn from chat, call a model,
 
 ## Start here
 
-Download **RSOContextAlpha-0.9.3.zip** from the
-[0.9.3 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.3) and
+Download **RSOContextAlpha-0.9.4.zip** from the
+[0.9.4 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.4) and
 extract it. The release page includes a SHA-256 checksum. GitHub access is
 required while the repository is private. A release ZIP is tied to a version;
 **Code > Download ZIP** downloads the selected branch's current source instead.
@@ -58,7 +58,21 @@ MCP access and searchable context are separate. Reaching a folder through MCP do
 | Integrate through MCP | Run `rso-context mcp --setup --client all`, then call `rso_use` on the project folder before querying |
 | Inspect the ledger locally | Run the optional read-only localhost viewer with `admin` |
 
-## What's new in 0.9.3
+## What's new in 0.9.4
+
+- Any agent host can use RSO on any bounded project folder through MCP. Host
+  entries used to pin the folders named at setup time, so agents working
+  anywhere else were refused. A tool call now names the project folder, and
+  `--strict-roots` brings back launch-only access.
+- `rso-context mcp --setup --client all` writes one portable entry into every
+  installed host: Codex, Claude Code, Claude Desktop, Cursor, Windsurf, Gemini
+  CLI, Antigravity, and OpenCode.
+- Queries at the default byte budget no longer come back empty when the packet
+  is a few bytes over the wire limit.
+- A host that strips the child environment no longer breaks ingest, splits a
+  project's identity, or loses the user-profile refusal.
+
+## What was new in 0.9.3
 
 - An MCP launch with no `--root` binds the folder the host started the server in,
   so adding a project no longer means editing a host config. The bound does not
@@ -142,13 +156,13 @@ python -B install.py
 & "$env:USERPROFILE\.local\bin\rso-context.cmd" doctor
 ```
 
-The version should be `0.9.3`; `doctor` should report `ready: true`. The installer
+The version should be `0.9.4`; `doctor` should report `ready: true`. The installer
 prints the command path and does not change PATH. Follow the
 [quick-start demo](QUICKSTART.md) for a complete example using a disposable
 project and ledger. [INSTALL.md](INSTALL.md) covers Linux, macOS, and custom paths;
 automated Windows, Ubuntu, and macOS checks run on every change (see VERIFICATION.md).
 
-The 0.9.3 ZIP includes the Linux path-isolation fixes and Git Bash launcher
+The 0.9.4 ZIP includes the Linux path-isolation fixes and Git Bash launcher
 support. For Linux, follow
 [the Linux installation instructions](INSTALL.md#linux). See
 [VERIFICATION.md](VERIFICATION.md) for recorded Debian and Ubuntu checks.
