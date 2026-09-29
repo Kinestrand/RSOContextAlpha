@@ -33,8 +33,8 @@
   Git through `RSO_GIT`, `PATH`, or the standard Windows install folders, and
   setup writes `RSO_GIT` into the entry.
 - The profile refusal no longer depends on `USERPROFILE` or `HOME`; it asks the
-  operating system for the profile folder. Another account's profile (such as
-  `C:\Users\Public`) is refused as well.
+  operating system for the profile folder. Another account's profile, including the
+  shared Public profile, is refused as well.
 - Every tool failure now reports its reason. Unexpected exceptions used to
   surface as "Error executing tool" with no cause.
 
