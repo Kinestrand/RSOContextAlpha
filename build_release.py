@@ -13,12 +13,12 @@ from install import release_files
 def build(source: Path, destination: Path) -> dict:
     files = release_files(source)
     version = (source / "src/rso_context/__init__.py").read_text(encoding="utf-8")
-    if '__version__ = "0.9.3"' not in version:
+    if '__version__ = "0.9.4"' not in version:
         raise ValueError("Review the release version before packaging")
     if destination.exists():
         raise FileExistsError(f"Preserve the existing archive before rebuilding: {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    prefix = "RSOContextAlpha-0.9.3/"
+    prefix = "RSOContextAlpha-0.9.4/"
     with zipfile.ZipFile(destination, "x", compression=zipfile.ZIP_DEFLATED) as archive:
         for relative in files:
             # Fixed ZIP-safe timestamps, UTF-8 names, and POSIX mode metadata.
@@ -39,6 +39,6 @@ def build(source: Path, destination: Path) -> dict:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=Path("outputs/RSOContextAlpha-0.9.3.zip"))
+    parser.add_argument("--output", type=Path, default=Path("outputs/RSOContextAlpha-0.9.4.zip"))
     args = parser.parse_args()
     print(json.dumps(build(Path(__file__).resolve().parent, args.output), indent=2))

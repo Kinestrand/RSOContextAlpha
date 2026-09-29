@@ -45,12 +45,12 @@ Tests use temporary folders and isolated databases. Manual experiments must also
 Run from the checkout:
 
 ```text
-python -B build_release.py --output outputs/RSOContextAlpha-0.9.3.zip
+python -B build_release.py --output outputs/RSOContextAlpha-0.9.4.zip
 ```
 
 The builder uses only `RELEASE-FILES.txt`, verifies archive integrity, and prints a SHA-256 hash. It refuses to replace an existing ZIP. Choose a new output path when preserving an earlier build. Install an extracted package with `python -B install.py`; see [INSTALL.md](INSTALL.md) for the platform paths and isolated installation checks.
 
-The current version is 0.9.3. For a new version, update `src/rso_context/__init__.py`, the version guard and archive prefix in `build_release.py`, related tests, and versioned documentation together before building.
+The current version is 0.9.4. For a new version, update `src/rso_context/__init__.py`, the version guard and archive prefix in `build_release.py`, related tests, and versioned documentation together before building.
 
 ## GitHub checks
 

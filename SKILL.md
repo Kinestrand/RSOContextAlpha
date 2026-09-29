@@ -23,7 +23,7 @@ bring-up. Do not ask the user to run PowerShell, PATH edits, or ingest commands.
 
 ## Resolve the CLI
 
-Current program version is **0.9.3**. Check `rso-context --version`. Install the matching release using `INSTALL.md` if absent or older. Python 3.11+, Git, and SQLite FTS5 are required. The installer is `python install.py` on Windows or `python3 install.py` on macOS. It copies an explicit manifest and prints the command path; it does not change PATH or register client skills. Current-branch macOS automated checks passed; the published release ZIP predates those checks. See VERIFICATION.md.
+Current program version is **0.9.4**. Check `rso-context --version`. Install the matching release using `INSTALL.md` if absent or older. Python 3.11+, Git, and SQLite FTS5 are required. The installer is `python install.py` on Windows or `python3 install.py` on macOS. It copies an explicit manifest and prints the command path; it does not change PATH or register client skills. Current-branch macOS automated checks passed; the published release ZIP predates those checks. See VERIFICATION.md.
 
 Resolve the CLI on PATH first. Default fallback locations:
 
