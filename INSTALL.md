@@ -148,7 +148,7 @@ rso-context mcp --remove --client codex
 
 `--client all` configures every supported host whose config folder already
 exists and lists the ones it skipped. Name one host (`codex`, `claude-code`,
-`claude-desktop`, `cursor`, `windsurf`, `gemini`, `antigravity`, `opencode`) to
+`claude-desktop`, `cursor`, `windsurf`, `gemini`, `antigravity`, `qwen`, `opencode`) to
 configure only that one. Restart the host afterwards.
 
 The entry pins no `--root`, so one entry serves every project on that host.

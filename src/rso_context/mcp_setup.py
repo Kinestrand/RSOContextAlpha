@@ -22,10 +22,11 @@ CLIENTS = (
     "windsurf",
     "gemini",
     "antigravity",
+    "qwen",
     "opencode",
 )
 # Hosts whose config keys servers under "mcpServers" with command/args/env.
-JSON_CLIENTS = ("claude-code", "claude-desktop", "cursor", "windsurf", "gemini", "antigravity")
+JSON_CLIENTS = ("claude-code", "claude-desktop", "cursor", "windsurf", "gemini", "antigravity", "qwen")
 GOOGLE_CLIENTS = ("gemini", "antigravity")
 
 
@@ -157,6 +158,14 @@ def default_antigravity_config() -> Path:
     if override:
         return Path(override).expanduser()
     return Path.home() / ".gemini" / "config" / "mcp_config.json"
+
+
+def default_qwen_config() -> Path:
+    """Qwen Code user settings, a Gemini CLI fork with its own folder."""
+    override = os.environ.get("RSO_MCP_QWEN_CONFIG")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".qwen" / "settings.json"
 
 
 def default_opencode_config() -> Path:
@@ -360,6 +369,7 @@ def default_config(client: str) -> Path:
         "windsurf": default_windsurf_config,
         "gemini": default_gemini_config,
         "antigravity": default_antigravity_config,
+        "qwen": default_qwen_config,
         "opencode": default_opencode_config,
     }[client]()
 
@@ -408,7 +418,9 @@ def setup_client(
         **written,
         "note": (
             "Unrelated client settings were left in place. Restart the host to load the entry. "
-            "Tool discovery is not automatic use: call rso_use with the project folder first."
+            "Tool discovery is not automatic use: call rso_use with the project folder first. "
+            "rso_use is an MCP tool the host lists, not a shell command; "
+            "from a shell the equivalent is rso-context use."
         ),
     }
 

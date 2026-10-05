@@ -77,6 +77,8 @@ Launch roots grant access only. They do not register or ingest projects. Call `r
 
 Optional local stdio MCP uses the same core functions as the CLI. Pin and verify isolated `mcp==2.2.0`; `doctor` / `mcp --status` `runtime_ready` is true only for that exact version. **Tool discovery is not a promise of automatic use.** After the host lists `rso_use` / `rso_query`, still call them (or the CLI) with the current agent name and the actual task:
 
+`rso_use` and the other `rso_*` names are MCP tools, never shell commands. Call them through the host's tool-call mechanism; hosts show them with a server prefix (for example `mcp__rso-context__rso_use` or `rso-context__rso_use`). A "command not found" error means the call went to the shell. List the host's MCP tools to find the prefixed name, or from a shell run `rso-context use --agent <name> --path <folder>` and `rso-context query "<task>" --agent <name> --path <folder>`.
+
 ```text
 rso_use path=<bounded-workspace> agent=<current-agent-name>
 rso_query query="<actual user task>" path=<bounded-workspace> agent=<current-agent-name>
@@ -106,7 +108,7 @@ rso-context mcp --setup --client all
 rso-context mcp --remove --client codex
 ```
 
-`--setup --client all` writes one portable entry, with no pinned `--root`, into every installed host (Codex, Claude Code, Claude Desktop, Cursor, Windsurf, Gemini CLI, Antigravity, OpenCode). Restart the host afterwards. Pass the absolute project folder as `path` on every tool call. Any bounded folder is accepted; a user profile, Documents, Downloads, a drive root, a hidden profile folder, and system folders are refused. `--strict-roots` with `--root` limits a host to fixed folders. `--setup` writes only the `rso-context` entry. `--remove` deletes only that entry. Tests and isolated checks must pass `--config <file>` so live host files are not edited. Other hosts get the stdio command from `doctor` JSON (`mcp_clients.stdio`); that is documentation, not a compatibility claim.
+`--setup --client all` writes one portable entry, with no pinned `--root`, into every installed host (Codex, Claude Code, Claude Desktop, Cursor, Windsurf, Gemini CLI, Antigravity, Qwen Code, OpenCode). Restart the host afterwards. Pass the absolute project folder as `path` on every tool call. Any bounded folder is accepted; a user profile, Documents, Downloads, a drive root, a hidden profile folder, and system folders are refused. `--strict-roots` with `--root` limits a host to fixed folders. `--setup` writes only the `rso-context` entry. `--remove` deletes only that entry. Tests and isolated checks must pass `--config <file>` so live host files are not edited. Other hosts get the stdio command from `doctor` JSON (`mcp_clients.stdio`); that is documentation, not a compatibility claim.
 
 ## Pointers, compact, and admin
 
