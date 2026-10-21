@@ -94,6 +94,17 @@ TOOLS = (
             "Not a generic path read."
         ),
     },
+    {
+        "name": "rso_validate",
+        "writes": True,
+        "required": ("claim", "validator", "result", "agent"),
+        "description": (
+            "Record a named validation for one claim (id, unique 8+ char id prefix, or exact text "
+            "with path). result is verified, disputed or superseded. validator names who or what "
+            "checked it (a person, test suite or command); agent is who records it. Only a named "
+            "validation changes trust_state; observed claims stay unverified without one."
+        ),
+    },
 )
 
 TOOL_NAMES = tuple(item["name"] for item in TOOLS)

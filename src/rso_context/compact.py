@@ -361,7 +361,9 @@ def compact_packet(
                 compact["omitted_count"] = len(conflict)
                 compact["status"] = "insufficient_budget"
                 compact["message"] = "Conflicting evidence cannot fit; use omitted expand refs."
-                return _finalize(compact, budget, protect_conflict=True)
+                return _explain_degraded(
+                    _finalize(compact, budget, protect_conflict=True), candidates, budget, packet
+                )
             conflict = witness
 
     kept = list(compact["evidence"])
@@ -375,7 +377,76 @@ def compact_packet(
     compact["evidence"] = kept
     compact["omitted"] = omitted
     compact["omitted_count"] = len(omitted)
-    return _finalize(compact, budget, protect_conflict=bool(conflict and kept[: len(conflict)] == conflict))
+    result = _finalize(compact, budget, protect_conflict=bool(conflict and kept[: len(conflict)] == conflict))
+    return _explain_degraded(result, candidates, budget, packet)
+
+
+def _explain_degraded(
+    compact: dict[str, object],
+    candidates: list[dict[str, object]],
+    budget: int,
+    packet: dict[str, object],
+) -> dict[str, object]:
+    """Say why a packet carries less evidence than the ledger found, and what to do.
+
+    An ``insufficient_budget`` packet with zero inline evidence used to look
+    like "nothing found". It now states how many spans were found, how many
+    are inline, the byte budget that would fit them, and how to recover them.
+    """
+    inline = len(compact.get("evidence") or [])
+    found = len(candidates)
+    degraded = compact.get("status") == "insufficient_budget" or (found and inline < found)
+    if not degraded:
+        return compact
+    full = _skeleton(packet, budget)
+    full["evidence"] = list(candidates)
+    needed = serialized_bytes(full) + 512
+    if inline == 0 and found:
+        reason = "evidence_found_but_none_fits_budget"
+    elif compact.get("status") == "insufficient_budget":
+        reason = "metadata_trimmed_to_fit_budget"
+    else:
+        reason = "some_evidence_omitted_for_budget"
+    note = {
+        "reason": reason,
+        "evidence_found": found,
+        "evidence_inline": inline,
+        "suggested_byte_budget": int(needed),
+        "recover": "call rso_expand with each omitted[].expand ref, or retry with byte_budget >= suggested_byte_budget",
+        "not_absence": True,
+    }
+    if inline == 0 and found:
+        compact["message"] = (
+            f"{found} matching span(s) were found but none fit in {budget} bytes. "
+            "This is a budget limit, not an empty result."
+        )
+    short = {k: note[k] for k in ("reason", "evidence_found", "evidence_inline", "suggested_byte_budget")}
+    # The explanation outranks echo metadata the caller already has.
+    optional = ("search_order", "corpus_versions", "empty_result", "checks", "query")
+    for drop in range(len(optional) + 1):
+        for key in optional[:drop]:
+            if key in compact and compact[key] not in (None, [], {}):
+                compact[key] = [] if isinstance(compact[key], list) else None
+        for candidate in (note, short):
+            compact["degraded"] = candidate
+            _stamp_size(compact)
+            if serialized_bytes(compact) <= budget:
+                return compact
+        # The note says everything the message does; keep the note.
+        if "message" in compact:
+            saved = compact.pop("message")
+            compact["degraded"] = short
+            _stamp_size(compact)
+            if serialized_bytes(compact) <= budget:
+                return compact
+            compact["message"] = saved
+        if inline == 0 and found and "message" in compact:
+            compact["message"] = "Evidence found; none fits this byte budget. Not an empty result."
+    compact.pop("degraded", None)
+    if serialized_bytes(compact) > budget:
+        compact.pop("message", None)
+    _stamp_size(compact)
+    return compact
 
 
 def parse_expand_ref(ref: str | dict) -> dict[str, object]:

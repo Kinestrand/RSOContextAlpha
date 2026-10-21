@@ -70,7 +70,7 @@ class McpContractTests(unittest.TestCase):
     def test_tool_contract_names(self):
         self.assertEqual(
             tool_names(),
-            ("rso_use", "rso_query", "rso_check", "rso_resume", "rso_explain", "rso_expand"),
+            ("rso_use", "rso_query", "rso_check", "rso_resume", "rso_explain", "rso_expand", "rso_validate"),
         )
         self.assertEqual(TOOL_NAMES, tool_names())
 
@@ -477,6 +477,58 @@ anyio.run(main)
             self.assertFalse(payload["is_error"])
             self.assertFalse(payload["has_structured"])
             self.assertLessEqual(payload["wire_bytes"], payload["budget"])
+
+    def test_validate_tool_records_a_named_validation_and_runs_record_agent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "bounded"
+            workspace.mkdir()
+            (workspace / "AGENTS.md").write_text("Decision: widgets must stay blue.\n", encoding="utf-8")
+            db = Path(tmp) / "context.sqlite3"
+            probe = r"""
+import json, os, sqlite3, sys
+from pathlib import Path
+import anyio
+from mcp import Client, StdioServerParameters
+
+db, root, src = sys.argv[1], sys.argv[2], sys.argv[3]
+env = os.environ.copy()
+env["PYTHONPATH"] = src
+env["RSO_MCP_IN_RUNTIME"] = "1"
+params = StdioServerParameters(
+    command=sys.executable,
+    args=["-X", "utf8", "-m", "rso_context", "mcp", "--db", db, "--root", root],
+    env=env,
+    cwd=str(Path(src).parent),
+)
+
+async def main():
+    async with Client(params) as client:
+        await client.call_tool("rso_use", {"path": root, "agent": "wire-agent"})
+        await client.call_tool("rso_query", {"query": "widgets", "path": root, "agent": "wire-agent"})
+        result = await client.call_tool(
+            "rso_validate",
+            {"claim": "Decision: widgets must stay blue.", "path": root, "validator": "owner review",
+             "result": "verified", "agent": "wire-agent", "evidence": "read by owner"},
+        )
+        missing = await client.call_tool(
+            "rso_validate",
+            {"claim": "widgets must stay blue", "validator": "x", "result": "verified", "agent": "wire-agent"},
+        )
+        dumped = result.model_dump(mode="json", by_alias=True, exclude_none=True)
+    connection = sqlite3.connect(db)
+    agents = [row[0] for row in connection.execute("SELECT agent FROM runs")]
+    states = [row[0] for row in connection.execute("SELECT trust_state FROM claims WHERE trust_state='verified'")]
+    print(json.dumps({"is_error": bool(result.is_error), "missing_path_error": bool(missing.is_error),
+                      "agents": agents, "verified": len(states), "text": json.dumps(dumped)[:4000]}))
+
+anyio.run(main)
+"""
+            payload = _run_isolated(self.python, probe, str(db), str(workspace), str(ROOT / "src"))
+            self.assertFalse(payload["is_error"], payload["text"])
+            self.assertTrue(payload["missing_path_error"])
+            self.assertEqual(payload["agents"], ["wire-agent"])
+            self.assertEqual(payload["verified"], 1)
+            self.assertIn("owner review", payload["text"])
 
 
 SHARED_LEDGER_PROBE = r"""

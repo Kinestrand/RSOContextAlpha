@@ -1,6 +1,6 @@
-# RSO Context Alpha 0.9.4
+# RSO Context Alpha 0.10.0
 
-[Download 0.9.4](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.4) ·
+[Download 0.10.0](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.10.0) ·
 [Quick-start](QUICKSTART.md) · [Installation](INSTALL.md) ·
 [Manual](MANUAL.md) · [Changes](CHANGELOG.md) · [Verification](VERIFICATION.md)
 
@@ -21,8 +21,8 @@ The files remain the source of truth. RSO doesn't learn from chat, call a model,
 
 ## Start here
 
-Download **RSOContextAlpha-0.9.4.zip** from the
-[0.9.4 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.9.4) and
+Download **RSOContextAlpha-0.10.0.zip** from the
+[0.10.0 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.10.0) and
 extract it. The release page includes a SHA-256 checksum. GitHub access is
 required while the repository is private. A release ZIP is tied to a version;
 **Code > Download ZIP** downloads the selected branch's current source instead.
@@ -58,7 +58,19 @@ MCP access and searchable context are separate. Reaching a folder through MCP do
 | Integrate through MCP | Run `rso-context mcp --setup --client all`, then call `rso_use` on the project folder before querying |
 | Inspect the ledger locally | Run the optional read-only localhost viewer with `admin` |
 
-## What's new in 0.9.4
+## What's new in 0.10.0
+
+- Much faster queries on large ledgers: graph matching uses an index instead of
+  scanning every node, and the cache now reuses packets for repeated or
+  re-spaced requests on an unchanged corpus.
+- `rso_use` no longer fails with `too many SQL variables` on heavily edited files.
+- One folder resolves to one project even when agents see Git differently;
+  `cleanup-projects` reports existing duplicates and junk (dry run by default).
+- Runs record the agent (`rso-context usage`), `doctor` is fast, validations
+  can be recorded by claim text or id prefix (CLI) and through `rso_validate`
+  (MCP), and budget-limited packets say what was left out and how to get it.
+
+## What was new in 0.9.4
 
 - Any agent host can use RSO on any bounded project folder through MCP. Host
   entries used to pin the folders named at setup time, so agents working
@@ -156,7 +168,7 @@ python -B install.py
 & "$env:USERPROFILE\.local\bin\rso-context.cmd" doctor
 ```
 
-The version should be `0.9.4`; `doctor` should report `ready: true`. The installer
+The version should be `0.10.0`; `doctor` should report `ready: true`. The installer
 prints the command path and does not change PATH. Follow the
 [quick-start demo](QUICKSTART.md) for a complete example using a disposable
 project and ledger. [INSTALL.md](INSTALL.md) covers Linux, macOS, and custom paths;

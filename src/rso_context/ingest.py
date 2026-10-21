@@ -19,7 +19,7 @@ from .config import (
     git_executable,
     is_sensitive_path,
 )
-from .db import Database, json_text
+from .db import Database, batched, sql_batch_size, delete_fts_for_chunks, fts_rowids_for_chunks, insert_fts, json_text
 from .identity import register_project, sha256_file, sha256_text, utc_now
 from .pointers import slice_source_lines
 
@@ -680,10 +680,13 @@ def ingest_project(
                             (source_id,),
                         )
                     ]
-                    for chunk_id in chunk_ids:
+                    for batch in batched(
+                        fts_rowids_for_chunks(connection, chunk_ids), sql_batch_size(connection, reserve=9)
+                    ):
+                        placeholders = ",".join("?" for _ in batch)
                         connection.execute(
-                            "UPDATE chunk_fts SET path=? WHERE chunk_id=?",
-                            (relative_path, chunk_id),
+                            f"UPDATE chunk_fts SET path=? WHERE rowid IN ({placeholders})",
+                            (relative_path, *batch),
                         )
                     counters["files_renamed"] += 1
                     changed = True
@@ -717,10 +720,9 @@ def ingest_project(
                     )
                 ]
                 if old_chunk_ids:
-                    placeholders = ",".join("?" for _ in old_chunk_ids)
-                    connection.execute(
-                        f"DELETE FROM chunk_fts WHERE chunk_id IN ({placeholders})", old_chunk_ids
-                    )
+                    # Batched through the rowid map: one IN list per 500 ids, never
+                    # a full FTS scan and never past SQLite's variable limit.
+                    delete_fts_for_chunks(connection, [int(value) for value in old_chunk_ids])
                 connection.execute(
                     "UPDATE sources SET relative_path=?,media_type=?,current_hash=?,size_bytes=?,"
                     "mtime_ns=?,active=1,last_seen=? WHERE id=?",
@@ -764,9 +766,13 @@ def ingest_project(
                         ),
                     )
                     chunk_id = int(chunk_cursor.lastrowid)
-                    connection.execute(
-                        "INSERT INTO chunk_fts(text,heading,path,project_id,chunk_id) VALUES(?,?,?,?,?)",
-                        (chunk.text, chunk.heading or "", relative_path, project_id, chunk_id),
+                    insert_fts(
+                        connection,
+                        text=chunk.text,
+                        heading=chunk.heading or "",
+                        path=relative_path,
+                        project_id=project_id,
+                        chunk_id=chunk_id,
                     )
                     entity_count, claim_count = _extract_graph(
                         connection,
@@ -788,9 +794,13 @@ def ingest_project(
                 ):
                     plate = slice_source_lines(text, int(row["line_start"]), int(row["line_end"]))
                     fts_body = plate or (row["text"] or "")
-                    connection.execute(
-                        "INSERT INTO chunk_fts(text,heading,path,project_id,chunk_id) VALUES(?,?,?,?,?)",
-                        (fts_body, row["heading"] or "", relative_path, project_id, row["id"]),
+                    insert_fts(
+                        connection,
+                        text=fts_body,
+                        heading=row["heading"] or "",
+                        path=relative_path,
+                        project_id=project_id,
+                        chunk_id=int(row["id"]),
                     )
             changed = True
 

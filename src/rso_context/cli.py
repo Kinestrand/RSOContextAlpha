@@ -17,10 +17,11 @@ from .audit import (
     pending_validations,
     propose_claim,
     record_validation,
+    resolve_claim_id,
     validate_graph,
 )
 from .config import Limits, automatic_discovery_roots, default_db_path
-from .db import Database
+from .db import SCHEMA_VERSION, Database, read_schema_version
 from .discovery import discover_and_register
 from .identity import project_explanation, register_project, resolve_existing_project
 from .admin import serve_admin
@@ -373,15 +374,69 @@ def command_record_validation(args: argparse.Namespace) -> int:
     details = json.loads(raw_details)
     if not isinstance(details, dict):
         raise ValueError("Validation details must be a JSON object")
+    if getattr(args, "evidence", None):
+        details.setdefault("evidence", args.evidence)
+    database = _database(args)
+    claim_id = resolve_claim_id(
+        database,
+        args.claim_id,
+        text=getattr(args, "text", None),
+        path=getattr(args, "path", None),
+        project_id=getattr(args, "project_id", None),
+    )
     _print(
         record_validation(
-            _database(args),
-            args.claim_id,
+            database,
+            claim_id,
             validator=args.validator,
             result=args.result,
             details=details,
+            agent=getattr(args, "agent", None),
         )
     )
+    return 0
+
+
+def command_cleanup_projects(args: argparse.Namespace) -> int:
+    from .cleanup import apply_cleanup, plan_cleanup
+
+    database = _database(args)
+    if not args.apply:
+        _print(plan_cleanup(database))
+        return 0
+    if not args.yes:
+        raise ValueError(
+            "--apply changes the ledger. Back it up first, review the dry run, then add --yes."
+        )
+    _print(
+        apply_cleanup(
+            database,
+            merge=args.only in (None, "merge"),
+            prune=args.only in (None, "prune"),
+            include_protected=args.include_protected,
+            project_ids=args.project_id or None,
+        )
+    )
+    return 0
+
+
+def command_usage(args: argparse.Namespace) -> int:
+    database = _database(args)
+    database.initialize()
+    clauses, params = [], []
+    if args.since:
+        clauses.append("r.created_at >= ?")
+        params.append(args.since)
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    with database.connect() as connection:
+        rows = connection.execute(
+            "SELECT COALESCE(r.agent, '(unrecorded)') AS agent, p.display_name AS project, "
+            "COUNT(*) AS runs, ROUND(AVG(r.elapsed_ms)) AS avg_ms, MAX(r.created_at) AS last_run "
+            f"FROM runs r JOIN projects p ON p.id=r.project_id{where} "
+            "GROUP BY 1, 2 ORDER BY runs DESC",
+            params,
+        ).fetchall()
+    _print({"schema": "rso-usage/v1", "since": args.since, "rows": [dict(row) for row in rows]})
     return 0
 
 
@@ -465,25 +520,58 @@ def command_doctor(args: argparse.Namespace) -> int:
     from .mcp_runtime import runtime_status
     from .mcp_setup import inspect_clients
 
+    timings: dict[str, float] = {}
+
+    def timed(label, fn):
+        started = time.perf_counter()
+        try:
+            return fn()
+        finally:
+            timings[label] = round((time.perf_counter() - started) * 1000, 1)
+
     database = _database(args)
     checks: dict[str, object] = {
         "python": sys.version.split()[0],
-        "git": _found_git(),
+        "git": timed("git", _found_git),
         "database": str(database.path),
         "automatic_roots": [str(path) for path in automatic_discovery_roots()],
     }
+    if database.path.exists():
+        checks["database_bytes"] = database.path.stat().st_size
     with database.connect() as connection:
         checks["sqlite"] = sqlite3.sqlite_version
-        checks["quick_check"] = connection.execute("PRAGMA quick_check").fetchone()[0]
+        checks["schema_version"] = read_schema_version(connection)
+        checks["code_schema_version"] = SCHEMA_VERSION
+        # A full quick_check reads every page: minutes on a multi-GB ledger. It
+        # runs only with --integrity; the default reads the header and schema.
+        if getattr(args, "integrity", False):
+            checks["quick_check"] = timed(
+                "quick_check", lambda: connection.execute("PRAGMA quick_check").fetchone()[0]
+            )
+            checks["integrity"] = "quick_check"
+        else:
+            def header_check() -> str:
+                connection.execute("SELECT count(*) FROM sqlite_master").fetchone()
+                connection.execute("PRAGMA schema_version").fetchone()
+                return "ok"
+
+            checks["quick_check"] = timed("header", header_check)
+            checks["integrity"] = "header_only (run `doctor --integrity` for a full quick_check)"
         try:
-            connection.execute("SELECT count(*) FROM chunk_fts WHERE chunk_fts MATCH 'test'").fetchone()
+            timed(
+                "fts5",
+                lambda: connection.execute(
+                    "SELECT 1 FROM chunk_fts WHERE chunk_fts MATCH 'test' LIMIT 1"
+                ).fetchone(),
+            )
             checks["fts5"] = True
         except sqlite3.OperationalError as error:
             checks["fts5"] = False
             checks["fts5_error"] = str(error)
-    checks["mcp"] = runtime_status()
-    checks["mcp_clients"] = inspect_clients()
+    checks["mcp"] = timed("mcp_runtime", runtime_status)
+    checks["mcp_clients"] = timed("mcp_clients", inspect_clients)
     checks["ready"] = checks["quick_check"] == "ok" and checks["fts5"] is True and checks["git"] is not None
+    checks["timings_ms"] = timings
     _print(checks)
     return 0 if checks["ready"] else 1
 
@@ -721,12 +809,38 @@ def build_parser() -> argparse.ArgumentParser:
     record_validation_parser = subparsers.add_parser(
         "record-validation", help="Record a named validation for a claim"
     )
-    record_validation_parser.add_argument("claim_id")
+    record_validation_parser.add_argument(
+        "claim_id", nargs="?", help="Claim id or a unique 8+ character prefix (or use --text)"
+    )
+    record_validation_parser.add_argument("--text", help="Exact claim text, looked up in --path's project")
+    record_validation_parser.add_argument("--path", help="Project folder for --text lookup")
+    record_validation_parser.add_argument("--project-id", help="Project id for --text lookup")
+    record_validation_parser.add_argument("--agent", help="Who is recording this (attribution)")
+    record_validation_parser.add_argument("--evidence", help="Short evidence note, stored in details.evidence")
     record_validation_parser.add_argument("--validator", required=True)
     record_validation_parser.add_argument("--result", choices=sorted(VALIDATION_RESULTS), required=True)
     record_validation_parser.add_argument("--details", help="Validation details as a JSON object")
     record_validation_parser.add_argument("--details-file", help="Path to validation details JSON")
     record_validation_parser.set_defaults(function=command_record_validation)
+
+    cleanup_parser = subparsers.add_parser(
+        "cleanup-projects",
+        help="Report duplicate and junk project registrations (dry run unless --apply --yes)",
+    )
+    cleanup_parser.add_argument("--apply", action="store_true", help="Change the ledger (needs --yes)")
+    cleanup_parser.add_argument("--yes", action="store_true", help="Confirm --apply after a backup")
+    cleanup_parser.add_argument("--only", choices=["merge", "prune"], help="Apply only merges or only prunes")
+    cleanup_parser.add_argument(
+        "--include-protected", action="store_true", help="Also prune projects with proposed/validated claims"
+    )
+    cleanup_parser.add_argument(
+        "--project-id", action="append", help="Limit --apply to these project ids (repeatable)"
+    )
+    cleanup_parser.set_defaults(function=command_cleanup_projects)
+
+    usage_parser = subparsers.add_parser("usage", help="Run counts by agent and project")
+    usage_parser.add_argument("--since", help="ISO timestamp lower bound, e.g. 2026-10-01")
+    usage_parser.set_defaults(function=command_usage)
 
     audit_parser = subparsers.add_parser("audit", help="Run a lightweight Match Move coverage audit")
     audit_parser.add_argument("request")
@@ -792,6 +906,9 @@ def build_parser() -> argparse.ArgumentParser:
     replay_parser.set_defaults(function=command_replay)
 
     doctor_parser = subparsers.add_parser("doctor", help="Check local runtime support")
+    doctor_parser.add_argument(
+        "--integrity", action="store_true", help="Also run PRAGMA quick_check (slow on large ledgers)"
+    )
     doctor_parser.set_defaults(function=command_doctor)
 
     mcp_parser = subparsers.add_parser(

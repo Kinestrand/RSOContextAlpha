@@ -46,6 +46,8 @@ class QueryFreshnessTests(unittest.TestCase):
         first = self.query()
         with patch("rso_context.query._retrieve_requirement", side_effect=AssertionError("cache missed")):
             second = self.query("b")
+        self.assertFalse(first.pop("cache")["hit"])
+        self.assertTrue(second.pop("cache")["hit"])
         self.assertEqual(first, second)
 
     def test_edit_invalidates_cross_agent_cache_even_with_same_size_and_mtime(self):

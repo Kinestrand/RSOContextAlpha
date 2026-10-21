@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import time
@@ -89,6 +90,21 @@ def _fts_expressions(value: str, project_ids: list[str] | None = None) -> list[s
         if expression not in deduped:
             deduped.append(expression)
     return deduped
+
+
+def _scoped_match(expression: str, project_ids: list[str]) -> str:
+    """Restrict an FTS expression to the scoped projects inside MATCH.
+
+    Project ids are quoted phrases, so UUID hyphens tokenize as a phrase rather
+    than breaking the query. Ranking ignores the project column (weight 0), so
+    scores are the same as an unscoped search; the inner LIMIT now only sees
+    in-scope rows instead of the top hits of every project in the ledger.
+    """
+    ids = [pid for pid in project_ids if pid]
+    if not ids:
+        return expression
+    scope = " OR ".join(_escape_fts_token(pid) for pid in ids)
+    return f"({expression}) AND project_id : ({scope})"
 
 
 PREFERRED_FIRST_SPLIT = 4
@@ -319,10 +335,10 @@ def _query_one(
                END AS scope_priority,
                fts.text_rank AS text_rank
         FROM (
-            SELECT chunk_id AS fts_chunk_id, bm25(chunk_fts) AS text_rank
+            SELECT chunk_id AS fts_chunk_id, bm25(chunk_fts, 1.0, 1.0, 1.0, 0.0, 0.0) AS text_rank
             FROM chunk_fts
             WHERE chunk_fts MATCH ?
-            ORDER BY rank
+            ORDER BY text_rank
             LIMIT ?
         ) AS fts
         JOIN chunks c ON c.id = fts.fts_chunk_id
@@ -338,7 +354,7 @@ def _query_one(
     try:
         rows = connection.execute(
             sql,
-            (project_id, expression, fts_cap, *project_ids, *path_bind, limit),
+            (project_id, _scoped_match(expression, project_ids), fts_cap, *project_ids, *path_bind, limit),
         ).fetchall()
     except sqlite3.OperationalError:
         return []
@@ -353,46 +369,114 @@ def _like_prefix(token: str) -> str:
     return token.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
+GRAPH_RESULT_CAP = 20
+GRAPH_PREFIX_CANDIDATES = 48
+# Nodes that only restate the project id are structural, never evidence of topic.
+GRAPH_SKIP_KINDS = ("project",)
+_PREFIX_CEILING = chr(0x10FFFF)
+
+_NODE_LIVE_SQL = (
+    "SELECT 1 FROM edges e "
+    "JOIN chunks c ON c.id=e.evidence_chunk_id "
+    "JOIN source_versions v ON v.id=c.source_version_id "
+    "JOIN sources s ON s.id=v.source_id "
+    "WHERE e.project_id=? AND e.{column}=? AND s.active=1 AND s.current_hash=v.content_hash LIMIT 1"
+)
+
+
+def _node_has_live_edge(connection, project_id: str, node_id: str) -> bool:
+    for column in ("subject_id", "object_id"):
+        if connection.execute(_NODE_LIVE_SQL.format(column=column), (project_id, node_id)).fetchone():
+            return True
+    return False
+
+
+def _graph_score(canonical_name: str, tokens: list[str]) -> tuple[int, bool]:
+    name = canonical_name.casefold()
+    exact = name in tokens
+    return sum(1 for token in tokens if token in name), exact
+
+
 def _graph_matches(connection, project_ids: list[str], tokens: list[str]) -> list[dict[str, object]]:
+    """Graph nodes that name the query's terms, most relevant first.
+
+    Large projects use the (project_id, canonical_name) index for equality and
+    prefix ranges instead of scanning every node, then check liveness only for
+    the few candidates that survive scoring. A node must share at least two
+    query terms (or equal one exactly) when the query has three or more terms,
+    so a single common word no longer pads the packet with unrelated cards.
+    """
     if not tokens or not project_ids:
         return []
-    project_placeholders = ",".join("?" for _ in project_ids)
-    sampled = connection.execute(
-        f"SELECT 1 FROM nodes n WHERE n.project_id IN ({project_placeholders}) LIMIT ?",
-        (*project_ids, GRAPH_LIKE_NODE_CAP + 1),
-    ).fetchall()
-    large = len(sampled) > GRAPH_LIKE_NODE_CAP
-    if large:
-        # Substring LIKE cannot use indexes and the EXISTS join makes a full
-        # node scan too expensive. Graph is secondary: equality/prefix only.
-        graph_tokens = [token for token in tokens[:8] if len(token) >= GRAPH_PREFIX_MIN_LEN]
-        if not graph_tokens:
-            return []
-        token_conditions = " OR ".join(
-            "(n.canonical_name = ? OR n.canonical_name LIKE ? ESCAPE '\\')"
-            for _ in graph_tokens
+    columns = "n.id,n.project_id,n.kind,n.canonical_name,n.display_name,n.trust_state,n.properties_json"
+    skip = ",".join("?" for _ in GRAPH_SKIP_KINDS)
+    candidates: dict[str, sqlite3.Row] = {}
+    for scoped_id in project_ids:
+        sampled = connection.execute(
+            "SELECT 1 FROM nodes n WHERE n.project_id=? LIMIT ?",
+            (scoped_id, GRAPH_LIKE_NODE_CAP + 1),
+        ).fetchall()
+        if not sampled:
+            continue
+        if len(sampled) <= GRAPH_LIKE_NODE_CAP:
+            graph_tokens = tokens[:8]
+            conditions = " OR ".join("n.canonical_name LIKE ?" for _ in graph_tokens)
+            for row in connection.execute(
+                f"SELECT {columns} FROM nodes n WHERE n.project_id=? AND n.kind NOT IN ({skip}) "
+                f"AND ({conditions})",
+                (scoped_id, *GRAPH_SKIP_KINDS, *[f"%{token}%" for token in graph_tokens]),
+            ):
+                candidates.setdefault(str(row["id"]), row)
+            continue
+        for token in tokens[:8]:
+            for row in connection.execute(
+                f"SELECT {columns} FROM nodes n WHERE n.project_id=? AND n.canonical_name=? "
+                f"AND n.kind NOT IN ({skip})",
+                (scoped_id, token, *GRAPH_SKIP_KINDS),
+            ):
+                candidates.setdefault(str(row["id"]), row)
+            if len(token) < GRAPH_PREFIX_MIN_LEN:
+                continue
+            for row in connection.execute(
+                f"SELECT {columns} FROM nodes n WHERE n.project_id=? "
+                "AND n.canonical_name>=? AND n.canonical_name<? "
+                f"AND n.kind NOT IN ({skip}) ORDER BY n.canonical_name LIMIT ?",
+                (scoped_id, token, token + _PREFIX_CEILING, *GRAPH_SKIP_KINDS, GRAPH_PREFIX_CANDIDATES),
+            ):
+                candidates.setdefault(str(row["id"]), row)
+    if not candidates:
+        return []
+    score_tokens = tokens[:8]
+    need = 2 if len(score_tokens) >= 3 else 1
+    trust_order = {"verified": 0, "observed": 1}
+    scored = []
+    for row in candidates.values():
+        score, exact = _graph_score(str(row["canonical_name"]), score_tokens)
+        if not exact and score < need:
+            continue
+        scored.append((row, score + (2 if exact else 0)))
+    scored.sort(
+        key=lambda item: (
+            -item[1],
+            trust_order.get(str(item[0]["trust_state"]), 2),
+            str(item[0]["kind"]),
+            str(item[0]["display_name"]),
         )
-        token_params: list[str] = []
-        for token in graph_tokens:
-            token_params.append(token)
-            token_params.append(_like_prefix(token))
-    else:
-        graph_tokens = tokens[:8]
-        token_conditions = " OR ".join("n.canonical_name LIKE ?" for _ in graph_tokens)
-        token_params = [f"%{token}%" for token in graph_tokens]
-    rows = connection.execute(
-        f"SELECT n.id,n.project_id,n.kind,n.display_name,n.trust_state,n.properties_json "
-        f"FROM nodes n WHERE n.project_id IN ({project_placeholders}) AND ({token_conditions}) "
-        "AND EXISTS (SELECT 1 FROM edges e "
-        "JOIN chunks c ON c.id=e.evidence_chunk_id "
-        "JOIN source_versions v ON v.id=c.source_version_id "
-        "JOIN sources s ON s.id=v.source_id "
-        "WHERE e.project_id=n.project_id AND (e.subject_id=n.id OR e.object_id=n.id) "
-        "AND s.active=1 AND s.current_hash=v.content_hash) "
-        "ORDER BY CASE n.trust_state WHEN 'verified' THEN 0 WHEN 'observed' THEN 1 ELSE 2 END,"
-        "n.kind,n.display_name LIMIT 20",
-        (*project_ids, *token_params),
-    ).fetchall()
+    )
+    kept: list[tuple[sqlite3.Row, int]] = []
+    for row, score in scored:
+        if len(kept) >= GRAPH_RESULT_CAP:
+            break
+        if _node_has_live_edge(connection, str(row["project_id"]), str(row["id"])):
+            kept.append((row, score))
+    kept.sort(
+        key=lambda item: (
+            trust_order.get(str(item[0]["trust_state"]), 2),
+            -item[1],
+            str(item[0]["kind"]),
+            str(item[0]["display_name"]),
+        )
+    )
     return [
         {
             "id": row["id"],
@@ -401,8 +485,9 @@ def _graph_matches(connection, project_ids: list[str], tokens: list[str]) -> lis
             "name": row["display_name"],
             "trust_state": row["trust_state"],
             "properties": json.loads(row["properties_json"]),
+            "match_score": score,
         }
-        for row in rows
+        for row, score in kept
     ]
 
 
@@ -499,33 +584,49 @@ def _validation_matches(connection, claim_ids: list[str]) -> list[dict[str, obje
 
 
 def _live_backed_items(connection, items, *, kind, cache, dependencies):
-    """Keep ledger items only while at least one backing plate still matches."""
+    """Keep ledger items only while at least one backing plate still matches.
+
+    Stops at the first live plate per item instead of hydrating every edge of a
+    hub node. Every plate it did read is recorded as a cache dependency, so a
+    cached packet is reused only while those same plates still match.
+    """
     kept = []
     for item in items:
         if kind == "claim" and item["trust_state"] == "proposed":
             kept.append(item)
             continue
         if kind == "claim":
-            join = "claim_evidence e JOIN chunks c ON c.id=e.chunk_id"
-            condition = "e.claim_id=?"
-            params = (item["id"],)
+            queries = [("claim_evidence e JOIN chunks c ON c.id=e.chunk_id", "e.claim_id=?", (item["id"],))]
         else:
             join = "edges e JOIN chunks c ON c.id=e.evidence_chunk_id"
-            condition = "e.project_id=? AND (e.subject_id=? OR e.object_id=?)"
-            params = (item["project_id"], item["id"], item["id"])
-        rows = connection.execute(
-            "SELECT DISTINCT s.resolved_path,s.current_hash AS source_hash,"
-            "c.line_start,c.line_end,c.text FROM " + join +
-            " JOIN source_versions v ON v.id=c.source_version_id"
-            " JOIN sources s ON s.id=v.source_id WHERE " + condition +
-            " AND s.active=1 AND s.current_hash=v.content_hash", params,
-        ).fetchall()
+            queries = [
+                (join, "e.project_id=? AND e.subject_id=?", (item["project_id"], item["id"])),
+                (join, "e.project_id=? AND e.object_id=?", (item["project_id"], item["id"])),
+            ]
         live = False
-        for row in rows:
-            matches = not hydrate_chunk_row(dict(row), cache)["stale"]
-            dependencies[(row["resolved_path"], row["source_hash"])] = matches
-            if matches:
-                live = True
+        checked: set[tuple[str, str, int, int]] = set()
+        for join, condition, params in queries:
+            cursor = connection.execute(
+                "SELECT s.resolved_path,s.current_hash AS source_hash,"
+                "c.line_start,c.line_end,c.text FROM " + join +
+                " JOIN source_versions v ON v.id=c.source_version_id"
+                " JOIN sources s ON s.id=v.source_id WHERE " + condition +
+                " AND s.active=1 AND s.current_hash=v.content_hash", params,
+            )
+            for row in cursor:
+                key = (row["resolved_path"], row["source_hash"], row["line_start"], row["line_end"])
+                if key in checked:
+                    continue
+                checked.add(key)
+                matches = not hydrate_chunk_row(dict(row), cache)["stale"]
+                dependency = (row["resolved_path"], row["source_hash"])
+                dependencies[dependency] = dependencies.get(dependency, True) and matches
+                if matches:
+                    live = True
+                    break
+            cursor.close()
+            if live:
+                break
         if live:
             kept.append(item)
     return kept
@@ -607,6 +708,17 @@ def _apply_whole_packet_budget(
     return hits, verified + kept_others, kept_graph
 
 
+OR_MIN_COVERAGE_TOKENS = 4
+OR_MIN_COVERAGE = 2
+
+
+def _token_coverage(row: dict[str, object], tokens: list[str]) -> int:
+    haystack = " ".join(
+        str(row.get(key) or "") for key in ("text", "heading", "relative_path")
+    ).casefold()
+    return sum(1 for token in tokens if token in haystack)
+
+
 def _retrieve_requirement(
     connection,
     requirement: str,
@@ -616,17 +728,37 @@ def _retrieve_requirement(
     limit: int,
     path: str | Path | None,
     scoped_ids: list[str],
+    strict_or: bool = False,
 ) -> list[dict[str, object]]:
+    """FTS rows for one requirement: all-terms first, then any-term fallback.
+
+    The any-term (OR) fallback used to accept a span that shared one common
+    word with a long request, which padded packets with unrelated cards. For
+    requests with 4+ terms the fallback now drops single-term spans whenever
+    spans with two or more terms exist, and ranks by how many terms they hold.
+    """
+    tokens = _tokens(requirement)
+    expressions = _fts_expressions(requirement, scoped_ids)
     rows: list[dict[str, object]] = []
-    for expression in _fts_expressions(requirement, scoped_ids):
+    for position, expression in enumerate(expressions):
+        is_or_fallback = " OR " in expression and (position > 0 or len(expressions) == 1)
+        filtering = strict_or and is_or_fallback and len(tokens) >= OR_MIN_COVERAGE_TOKENS
         rows = _query_one(
             connection,
             expression=expression,
             project_id=project_id,
             shared_ids=shared_ids,
-            limit=limit,
+            limit=limit * 4 if filtering else limit,
             path=path,
         )
+        if filtering and rows:
+            scored = [(row, _token_coverage(row, tokens)) for row in rows]
+            # Prefer spans that share several terms; fall back to single-term
+            # spans only when nothing better exists, so recall is unchanged.
+            if any(item[1] >= OR_MIN_COVERAGE for item in scored):
+                scored = [item for item in scored if item[1] >= OR_MIN_COVERAGE]
+            scored.sort(key=lambda item: (int(item[0]["scope_priority"]), -item[1]))
+            rows = [row for row, _ in scored[:limit]]
         if rows:
             break
     return rows
@@ -664,6 +796,55 @@ def _build_partition(
         "max_leaves": MAX_LEAVES,
         "leaves": leaves,
     }
+
+
+_INLINE_SPACE = re.compile(r"[ \t\f\v]+")
+
+
+def normalize_query_for_cache(query: str) -> str:
+    """Spacing-only normalization: runs of spaces/tabs collapse, line ends trim.
+
+    Newlines and case are kept because they change how a request splits.
+    """
+    lines = [_INLINE_SPACE.sub(" ", line).strip() for line in str(query).strip().splitlines()]
+    return "\n".join(lines)
+
+
+def normalize_scope_path(path: str | Path | None) -> str:
+    if not path:
+        return ""
+    try:
+        resolved = str(Path(path).expanduser().resolve())
+    except OSError:
+        resolved = str(path)
+    return os.path.normcase(resolved.rstrip("/\\") or resolved)
+
+
+def normalize_agent(agent: str | None) -> str | None:
+    value = str(agent or "").strip()
+    return value or None
+
+
+def cache_key_for(
+    *,
+    query: str,
+    project_id: str,
+    path: str | Path | None,
+    versions: dict[str, int],
+    config: dict[str, object],
+) -> str:
+    return hashlib.sha256(
+        json_text(
+            {
+                "query": normalize_query_for_cache(query),
+                "project_id": project_id,
+                "path": normalize_scope_path(path),
+                "versions": versions,
+                "config": config,
+                "cache_schema": 2,
+            }
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def query_context(
@@ -706,7 +887,7 @@ def query_context(
         }
     requirements = split_requirements(query, limit=MAX_LEAVES)
     config = {
-        "algorithm": "fts5-bounded-requirements-v4-live-sources",
+        "algorithm": "fts5-bounded-requirements-v5-scoped-graph",
         "limit_per_requirement": limit,
         "max_requirements": MAX_LEAVES,
         "max_leaves": MAX_LEAVES,
@@ -722,18 +903,17 @@ def query_context(
         ]
         shared_ids = [str(item["id"]) for item in search_order[1:]]
         version_vector = dict(scoped["corpus_versions"])
-        cache_key = hashlib.sha256(
-            json_text(
-                {
-                    "query": query,
-                    "project_id": project_id_value,
-                    "path": str(path) if path else "",
-                    "versions": version_vector,
-                    "config": config,
-                    "run": run_info,
-                }
-            ).encode("utf-8")
-        ).hexdigest()
+        # The key names what decides the packet: normalized query text, project,
+        # normalized scope path, corpus versions and retrieval config. Budget
+        # counters used to be part of it, so a budgeted agent never hit twice;
+        # run info is now refreshed on the reused packet instead.
+        cache_key = cache_key_for(
+            query=query,
+            project_id=project_id_value,
+            path=path,
+            versions=version_vector,
+            config=config,
+        )
         if use_cache and replay_run_info is None:
             cached = connection.execute(
                 "SELECT packet_json FROM cache WHERE cache_key=?", (cache_key,)
@@ -742,11 +922,14 @@ def query_context(
                 cached_body = json.loads(cached["packet_json"])
                 packet = cached_body.get("packet", {})
                 # Corpus versions change on ingest, but files can change between
-                # ingests. Include candidates excluded by budget and backing
-                # plates for graph/claim boosts, not only displayed evidence.
+                # ingests. Each recorded plate must still be in the state it was
+                # in when the packet was built: a plate that matched must still
+                # match, and one that was already stale must still be stale.
+                # Requiring every plate to match made any packet with one stale
+                # candidate permanently uncacheable.
                 dependencies = cached_body.get("source_checks")
                 if dependencies is None or not all(
-                    item.get("matched") and
+                    bool(item.get("matched")) ==
                     file_matches_hash(Path(item["resolved_path"]), item["source_hash"])
                     for item in dependencies
                 ):
@@ -757,8 +940,14 @@ def query_context(
                         "UPDATE cache SET last_used_at=?,hit_count=hit_count+1 WHERE cache_key=?",
                         (utc_now(), cache_key),
                     )
+                if packet.get("run") != run_info:
+                    packet["run"] = run_info
+                    packet["packet_hash"] = hashlib.sha256(
+                        json_text(packet_body_for_hash(packet)).encode("utf-8")
+                    ).hexdigest()
                 apply_solvers(packet)
                 attach_empty_result(packet)
+                packet["cache"] = {"hit": True, "key": cache_key[:16]}
                 _record_run(
                     database,
                     project_id_value,
@@ -768,6 +957,7 @@ def query_context(
                     packet,
                     started,
                     remaining_budget=run_info["remaining"],
+                    agent=agent,
                 )
                 return packet
 
@@ -787,6 +977,7 @@ def query_context(
                         limit=limit,
                         path=path,
                         scoped_ids=scoped_ids,
+                        strict_or=True,
                     )
                 ],
                 "extra_split": False,
@@ -825,6 +1016,7 @@ def query_context(
                                 limit=limit,
                                 path=path,
                                 scoped_ids=scoped_ids,
+                                strict_or=True,
                             )
                         ],
                         "extra_split": True,
@@ -989,6 +1181,7 @@ def query_context(
                 now,
             ),
         )
+    packet["cache"] = {"hit": False, "key": cache_key[:16]}
     _record_run(
         database,
         project_id_value,
@@ -998,6 +1191,7 @@ def query_context(
         packet,
         started,
         remaining_budget=run_info["remaining"],
+        agent=agent,
     )
     return packet
 
@@ -1011,13 +1205,14 @@ def _record_run(
     packet: dict[str, object],
     started: float,
     remaining_budget: int | None = None,
+    agent: str | None = None,
 ) -> None:
     packet_json = json_text(packet)
     packet_hash = str(packet.get("packet_hash") or hashlib.sha256(packet_json.encode()).hexdigest())
     with database.transaction() as connection:
         connection.execute(
             "INSERT INTO runs(id,project_id,query_text,corpus_version,config_json,packet_json,"
-            "packet_hash,elapsed_ms,created_at,remaining_budget) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "packet_hash,elapsed_ms,created_at,remaining_budget,agent) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (
                 str(uuid.uuid4()),
                 project_id,
@@ -1029,5 +1224,6 @@ def _record_run(
                 (time.perf_counter() - started) * 1000,
                 utc_now(),
                 remaining_budget,
+                normalize_agent(agent),
             ),
         )

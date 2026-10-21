@@ -1,5 +1,73 @@
 # Changelog
 
+## 0.10.0
+
+### Fixed
+
+- Queries on large ledgers took minutes. Graph matching scanned every node of
+  the project with a prefix `LIKE` and checked liveness for every match, then
+  re-hydrated every edge of each hub node. It now uses a new
+  `(project_id, canonical_name)` index with equality and prefix ranges, scores
+  candidates, and stops at the first live plate per node. On a 1.7M-chunk
+  ledger a fixed 12-query set went from a median of about 98 s (p90 205 s) to
+  0.55 s (p90 1.0 s) with the cache off.
+- The packet cache almost never hit. The key included the run-budget counter,
+  so a budgeted agent never matched its own earlier query; any packet with one
+  stale candidate was treated as invalid forever; and `Z:\x`, a UNC spelling
+  and `x/` were different keys. The key now uses spacing-normalized query text,
+  the resolved scope path, corpus versions and retrieval config; freshness is
+  checked by requiring each recorded plate to be in the state it was in when the
+  packet was built; and run info is refreshed on the reused packet. Packets now
+  carry `cache: {hit, key}` (excluded from `packet_hash`).
+- `rso_use` and ingest failed with `too many SQL variables` when a file with
+  more chunk versions than the SQLite build allows (32,766 in the MCP runtime)
+  changed. FTS deletes now go through a chunk-to-rowid map in batches sized to
+  the connection's limit, and no longer scan the whole FTS table per file.
+- One folder could be registered as several projects (`git:`, `git-common:`,
+  `git-path:` and `directory-path:` keys) when agents saw the Git remote
+  differently or a remote was renamed. Registration now reuses the existing
+  Git project registered at the same folder. A different root commit is never
+  joined, and a plain-directory project still does not become a Git project.
+- `doctor` ran a full `PRAGMA quick_check` and counted every FTS match, which
+  took minutes on a multi-GB ledger. It now reads the header and schema by
+  default and reports `timings_ms`; `doctor --integrity` runs the full check.
+
+### Added
+
+- Schema 7 (additive migration): `runs.agent`, `chunk_fts_map`, and indexes on
+  `nodes(project_id, canonical_name)`, `claim_evidence(chunk_id)`,
+  `cache(project_id)` and `runs(agent, created_at)`. Query and check runs from
+  the CLI and MCP record the agent. `rso-context usage [--since DATE]` reports
+  runs by agent and project.
+- `rso-context cleanup-projects` reports duplicate registrations of one folder
+  (merge groups with a survivor) and junk projects (agent worktrees, temp
+  folders, missing paths, scratch names, empty projects). It is a dry run
+  unless `--apply --yes` is given; projects with proposed or validated claims
+  are protected unless `--include-protected`. Merges move aliases, runs,
+  budgets, proposed claims and validations to the survivor and never drop a
+  named validation.
+- `record-validation` accepts a unique 8+ character id prefix or `--text` with
+  `--path`, plus `--agent` and `--evidence`. New MCP tool `rso_validate`
+  records a named validation (validator + result). Existing tools and flags are
+  unchanged.
+- Degraded compact packets explain themselves: a `degraded` object gives the
+  reason, evidence found vs inline, a byte budget that would fit, and how to
+  recover omitted spans. `insufficient_budget` with zero inline evidence now
+  says it is a budget limit, not an empty result.
+
+### Changed
+
+- FTS search is scoped to the active, domain and shared projects inside
+  `MATCH`, so the candidate cap no longer fills with other projects' hits.
+- For requests with four or more terms, the any-term fallback drops spans that
+  share only one term with the request when better spans exist, and graph nodes
+  must share two terms (or equal one) with such requests. Project-id nodes are
+  never returned as graph matches. These cut unrelated board cards from packets.
+- Connections use a 64 MB page cache, in-memory temp storage and memory-mapped
+  reads.
+- Query config algorithm is `fts5-bounded-requirements-v5-scoped-graph`; replay
+  of runs recorded by older builds may report algorithmic drift.
+
 ## 0.9.4
 
 ### Changed

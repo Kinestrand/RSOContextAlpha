@@ -624,7 +624,7 @@ def check_questions(
     with database.transaction() as connection:
         connection.execute(
             "INSERT INTO runs(id,project_id,query_text,corpus_version,config_json,packet_json,"
-            "packet_hash,elapsed_ms,created_at,remaining_budget) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "packet_hash,elapsed_ms,created_at,remaining_budget,agent) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (
                 str(uuid.uuid4()),
                 project_id_value,
@@ -636,6 +636,7 @@ def check_questions(
                 (time.perf_counter() - started) * 1000,
                 utc_now(),
                 budget["remaining"],
+                (str(agent or "").strip() or None),
             ),
         )
     return result

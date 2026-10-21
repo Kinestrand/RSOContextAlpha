@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 class SchemaVersionError(ValueError):
@@ -179,7 +179,8 @@ CREATE TABLE IF NOT EXISTS runs (
     packet_hash TEXT NOT NULL,
     elapsed_ms REAL NOT NULL,
     created_at TEXT NOT NULL,
-    remaining_budget INTEGER
+    remaining_budget INTEGER,
+    agent TEXT
 );
 
 CREATE TABLE IF NOT EXISTS run_budgets (
@@ -215,6 +216,20 @@ CREATE INDEX IF NOT EXISTS idx_claim_evidence_claim ON claim_evidence(claim_id);
 CREATE INDEX IF NOT EXISTS idx_validations_claim ON validations(claim_id, id);
 CREATE INDEX IF NOT EXISTS idx_runs_project_created ON runs(project_id, created_at);
 """ + FTS_SQL
+
+# v7: lookups that used to scan whole tables on large ledgers.
+V7_SQL = """
+CREATE TABLE IF NOT EXISTS chunk_fts_map (
+    chunk_id INTEGER NOT NULL,
+    fts_rowid INTEGER NOT NULL,
+    PRIMARY KEY(chunk_id, fts_rowid)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS idx_nodes_project_name ON nodes(project_id, canonical_name);
+CREATE INDEX IF NOT EXISTS idx_claim_evidence_chunk ON claim_evidence(chunk_id);
+CREATE INDEX IF NOT EXISTS idx_cache_project ON cache(project_id);
+CREATE INDEX IF NOT EXISTS idx_runs_agent_created ON runs(agent, created_at);
+CREATE INDEX IF NOT EXISTS idx_runs_query ON runs(project_id, query_text);
+"""
 
 
 def json_text(value: object) -> str:
@@ -266,6 +281,9 @@ def rebuild_chunk_fts_v3(connection: sqlite3.Connection) -> None:
         JOIN sources s ON s.id = v.source_id
         """
     )
+    connection.execute("CREATE TABLE IF NOT EXISTS chunk_fts_map (chunk_id INTEGER NOT NULL, fts_rowid INTEGER NOT NULL, PRIMARY KEY(chunk_id, fts_rowid)) WITHOUT ROWID")
+    connection.execute("DELETE FROM chunk_fts_map")
+    connection.execute("INSERT OR IGNORE INTO chunk_fts_map(chunk_id, fts_rowid) SELECT chunk_id, rowid FROM chunk_fts")
 
 
 def _write_schema_version(connection: sqlite3.Connection, version: int) -> None:
@@ -314,6 +332,88 @@ def _migrate_v6(connection: sqlite3.Connection) -> None:
     connection.execute("DELETE FROM run_budgets WHERE initial = 8")
 
 
+def _migrate_v7(connection: sqlite3.Connection) -> None:
+    """Agent attribution on runs, an FTS rowid map, and lookup indexes.
+
+    Additive only: no evidence row is rewritten or removed.
+    """
+    if "agent" not in _column_names(connection, "runs"):
+        connection.execute("ALTER TABLE runs ADD COLUMN agent TEXT")
+    connection.executescript(V7_SQL)
+    mapped = connection.execute("SELECT 1 FROM chunk_fts_map LIMIT 1").fetchone()
+    if mapped is None:
+        connection.execute(
+            "INSERT OR IGNORE INTO chunk_fts_map(chunk_id, fts_rowid) "
+            "SELECT chunk_id, rowid FROM chunk_fts WHERE chunk_id IS NOT NULL"
+        )
+    connection.execute("ANALYZE")
+
+
+def fts_rowids_for_chunks(connection: sqlite3.Connection, chunk_ids: list[int]) -> list[int]:
+    """FTS rowids for chunk ids, without scanning the FTS table."""
+    rowids: list[int] = []
+    for batch in batched(chunk_ids, sql_batch_size(connection)):
+        placeholders = ",".join("?" for _ in batch)
+        rowids.extend(
+            int(row[0])
+            for row in connection.execute(
+                f"SELECT fts_rowid FROM chunk_fts_map WHERE chunk_id IN ({placeholders})", batch
+            )
+        )
+    return rowids
+
+
+def delete_fts_for_chunks(connection: sqlite3.Connection, chunk_ids: list[int]) -> int:
+    """Delete FTS rows for chunk ids in bounded batches (no SQL-variable overflow)."""
+    rowids = fts_rowids_for_chunks(connection, chunk_ids)
+    size = sql_batch_size(connection)
+    for batch in batched(rowids, size):
+        placeholders = ",".join("?" for _ in batch)
+        connection.execute(f"DELETE FROM chunk_fts WHERE rowid IN ({placeholders})", batch)
+    for batch in batched(chunk_ids, size):
+        placeholders = ",".join("?" for _ in batch)
+        connection.execute(f"DELETE FROM chunk_fts_map WHERE chunk_id IN ({placeholders})", batch)
+    return len(rowids)
+
+
+def insert_fts(
+    connection: sqlite3.Connection,
+    *,
+    text: str,
+    heading: str,
+    path: str,
+    project_id: str,
+    chunk_id: int,
+) -> None:
+    cursor = connection.execute(
+        "INSERT INTO chunk_fts(text,heading,path,project_id,chunk_id) VALUES(?,?,?,?,?)",
+        (text, heading, path, project_id, chunk_id),
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO chunk_fts_map(chunk_id, fts_rowid) VALUES(?,?)",
+        (int(chunk_id), int(cursor.lastrowid)),
+    )
+
+
+SQL_BATCH = 500
+
+
+def sql_batch_size(connection: sqlite3.Connection, reserve: int = 8) -> int:
+    """Largest safe IN-list size for this connection (builds differ: 999, 32766, 250000)."""
+    try:
+        limit = int(connection.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER))
+    except (AttributeError, sqlite3.Error):
+        limit = 999
+    return max(1, min(SQL_BATCH, limit - reserve))
+
+
+def batched(values, size: int = SQL_BATCH):
+    """Yield lists of at most ``size`` items so IN (...) never hits SQLite's variable limit."""
+    items = list(values)
+    for offset in range(0, len(items), size):
+        yield items[offset : offset + size]
+
+
 def _migrate(connection: sqlite3.Connection, from_version: int) -> None:
     if from_version < 2:
         connection.executescript(SCHEMA_SQL)
@@ -325,6 +425,8 @@ def _migrate(connection: sqlite3.Connection, from_version: int) -> None:
         _migrate_v5(connection)
     if from_version < 6:
         _migrate_v6(connection)
+    if from_version < 7:
+        _migrate_v7(connection)
     _write_schema_version(connection, SCHEMA_VERSION)
 
 
@@ -340,6 +442,11 @@ class Database:
         connection.execute("PRAGMA journal_mode = WAL")
         connection.execute("PRAGMA synchronous = NORMAL")
         connection.execute("PRAGMA busy_timeout = 30000")
+        # Read-heavy ledger: a larger page cache, in-memory temp B-trees, and
+        # memory-mapped reads cut query I/O on multi-GB databases.
+        connection.execute("PRAGMA cache_size = -65536")
+        connection.execute("PRAGMA temp_store = MEMORY")
+        connection.execute("PRAGMA mmap_size = 268435456")
         return connection
 
     def initialize(self) -> None:
@@ -349,6 +456,7 @@ class Database:
             ).fetchone()
             if has_meta is None:
                 connection.executescript(SCHEMA_SQL)
+                connection.executescript(V7_SQL)
                 _write_schema_version(connection, SCHEMA_VERSION)
                 connection.execute(
                     "INSERT OR IGNORE INTO meta(key, value) VALUES('created_by', 'rso-context-alpha')"
@@ -360,6 +468,7 @@ class Database:
                 connection.executescript(SCHEMA_SQL)
                 if not _chunk_fts_is_v3(connection):
                     rebuild_chunk_fts_v3(connection)
+                _migrate_v7(connection)
                 _write_schema_version(connection, SCHEMA_VERSION)
                 connection.execute(
                     "INSERT OR IGNORE INTO meta(key, value) VALUES('created_by', 'rso-context-alpha')"
