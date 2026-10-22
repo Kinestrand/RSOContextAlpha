@@ -35,6 +35,7 @@
 ### Added
 
 - `cleanup-projects --apply` deletes in short, separately committed batches with a pause between them, prints progress, reports the longest lock hold, and resumes an interrupted run from a work list saved in the ledger.
+- Indexes on `edges(subject_id)`, `edges(object_id)` and `edges(evidence_chunk_id)`, added idempotently on open, so deleting nodes and chunks no longer scans every edge for foreign-key checks.
 - `compact` reports reclaimable space; `compact --yes` runs VACUUM with an explicit locking warning.
 
 - Schema 7 (additive migration): `runs.agent`, `chunk_fts_map`, and indexes on

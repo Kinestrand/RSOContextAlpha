@@ -218,6 +218,36 @@ CREATE INDEX IF NOT EXISTS idx_runs_project_created ON runs(project_id, created_
 """ + FTS_SQL
 
 # v7: lookups that used to scan whole tables on large ledgers.
+REFERENCE_INDEXES = {
+    "idx_edges_subject": "CREATE INDEX IF NOT EXISTS idx_edges_subject ON edges(subject_id)",
+    "idx_edges_object": "CREATE INDEX IF NOT EXISTS idx_edges_object ON edges(object_id)",
+    "idx_edges_evidence_chunk": "CREATE INDEX IF NOT EXISTS idx_edges_evidence_chunk ON edges(evidence_chunk_id)",
+}
+
+
+def ensure_reference_indexes(connection: sqlite3.Connection) -> list[str]:
+    """Index the edge columns that foreign keys point through.
+
+    Without them every deleted node or chunk makes SQLite scan all edges to
+    check references, which turns a project cleanup into hours of lock time.
+    Additive and idempotent, so it needs no schema-version bump.
+    """
+    present = {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='edges'"
+        )
+    }
+    created = []
+    for name, sql in REFERENCE_INDEXES.items():
+        if name not in present:
+            connection.execute(sql)
+            created.append(name)
+    if created:
+        connection.commit()
+    return created
+
+
 V7_SQL = """
 CREATE TABLE IF NOT EXISTS chunk_fts_map (
     chunk_id INTEGER NOT NULL,
@@ -457,6 +487,7 @@ class Database:
             if has_meta is None:
                 connection.executescript(SCHEMA_SQL)
                 connection.executescript(V7_SQL)
+                ensure_reference_indexes(connection)
                 _write_schema_version(connection, SCHEMA_VERSION)
                 connection.execute(
                     "INSERT OR IGNORE INTO meta(key, value) VALUES('created_by', 'rso-context-alpha')"
@@ -469,6 +500,7 @@ class Database:
                 if not _chunk_fts_is_v3(connection):
                     rebuild_chunk_fts_v3(connection)
                 _migrate_v7(connection)
+                ensure_reference_indexes(connection)
                 _write_schema_version(connection, SCHEMA_VERSION)
                 connection.execute(
                     "INSERT OR IGNORE INTO meta(key, value) VALUES('created_by', 'rso-context-alpha')"
@@ -481,6 +513,7 @@ class Database:
                 )
             if db_version < SCHEMA_VERSION:
                 _migrate(connection, db_version)
+            ensure_reference_indexes(connection)
             connection.execute(
                 "INSERT OR IGNORE INTO meta(key, value) VALUES('created_by', 'rso-context-alpha')"
             )

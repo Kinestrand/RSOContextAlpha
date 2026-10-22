@@ -79,6 +79,19 @@ class MigrationTests(Fixture):
         self.assertEqual(int(self.rows("SELECT value FROM meta WHERE key='schema_version'")[0][0]), SCHEMA_VERSION)
         indexes = {row[1] for row in self.rows("SELECT type,name FROM sqlite_master WHERE type='index'")}
         self.assertTrue({"idx_nodes_project_name", "idx_claim_evidence_chunk"} <= indexes)
+        self.assertTrue({"idx_edges_subject", "idx_edges_object", "idx_edges_evidence_chunk"} <= indexes)
+
+    def test_reference_indexes_are_added_to_an_existing_v7_ledger(self):
+        self.ingest()
+        connection = sqlite3.connect(self.db_path)
+        connection.execute("DROP INDEX idx_edges_evidence_chunk")
+        connection.commit()
+        connection.close()
+        self.database.initialize()
+        indexes = {row[0] for row in self.rows("SELECT name FROM sqlite_master WHERE type='index'")}
+        self.assertIn("idx_edges_evidence_chunk", indexes)
+        plan = self.rows("EXPLAIN QUERY PLAN SELECT 1 FROM edges WHERE evidence_chunk_id=1")
+        self.assertIn("idx_edges_evidence_chunk", " ".join(str(row[3]) for row in plan))
 
 
 class RunAgentTests(Fixture):
