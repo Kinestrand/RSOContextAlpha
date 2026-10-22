@@ -5,9 +5,11 @@ reached through ``rso-context cleanup-projects --apply``; back the ledger up fir
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import tempfile
+import time
 from pathlib import Path
 
 from .db import Database, batched, delete_fts_for_chunks, sql_batch_size
@@ -195,6 +197,7 @@ def plan_cleanup(database: Database) -> dict[str, object]:
         "schema": CLEANUP_SCHEMA,
         "mode": "dry_run",
         "database": str(database.path),
+        "pending": pending_cleanup(database),
         "projects": len(projects),
         "merge_groups": merges,
         "prune": prunes,
@@ -216,59 +219,146 @@ def _move(connection, table: str, column: str, source: str, target: str) -> None
     connection.execute(f"DELETE FROM {table} WHERE {column}=?", (source,))
 
 
-def _delete_project_data(connection, project_id: str) -> dict[str, int]:
-    """Delete one project's derived rows in foreign-key order."""
+PENDING_KEY = "cleanup_pending"
+DEFAULT_BATCH_ROWS = 2000
+DEFAULT_PAUSE_SECONDS = 0.05
+CLEANUP_BUSY_TIMEOUT_MS = 5000
+
+
+class _Batcher:
+    """Run cleanup work as many short write transactions.
+
+    Each step takes the write lock with BEGIN IMMEDIATE, does a bounded amount of
+    work, commits, and then pauses so other readers and writers get through. An
+    interruption loses at most the step in flight, which SQLite rolls back.
+    """
+
+    def __init__(self, connection, *, pause: float, progress) -> None:
+        self.connection = connection
+        self.pause = pause
+        self.progress = progress
+        self.transactions = 0
+        self.longest_ms = 0.0
+        self.total_lock_ms = 0.0
+
+    def step(self, work):
+        started = time.monotonic()
+        self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            result = work(self.connection)
+            self.connection.commit()
+        except BaseException:
+            self.connection.rollback()
+            raise
+        held = (time.monotonic() - started) * 1000
+        self.transactions += 1
+        self.total_lock_ms += held
+        self.longest_ms = max(self.longest_ms, held)
+        if self.pause:
+            time.sleep(self.pause)
+        return result
+
+    def drain(self, work) -> int:
+        """Repeat a step until it reports zero rows; return the total."""
+        total = 0
+        while True:
+            done = self.step(work)
+            if not done:
+                return total
+            total += done
+
+
+def _ids(connection, sql: str, params: tuple) -> list:
+    return [row[0] for row in connection.execute(sql, params)]
+
+
+def _delete_project_batched(batcher: _Batcher, project_id: str, rows: int) -> dict[str, int]:
+    """Delete one project's rows in the same foreign-key order, a batch at a time."""
     counts: dict[str, int] = {}
-    chunk_ids = [
-        int(row[0])
-        for row in connection.execute(
-            "SELECT c.id FROM chunks c JOIN source_versions v ON v.id=c.source_version_id "
-            "JOIN sources s ON s.id=v.source_id WHERE s.project_id=?",
-            (project_id,),
+
+    def edges(connection):
+        ids = _ids(connection, "SELECT rowid FROM edges WHERE project_id=? LIMIT ?", (project_id, rows))
+        for batch in batched(ids, sql_batch_size(connection)):
+            connection.execute(f"DELETE FROM edges WHERE rowid IN ({','.join('?' * len(batch))})", batch)
+        return len(ids)
+
+    def claims(connection):
+        ids = _ids(connection, "SELECT id FROM claims WHERE project_id=? LIMIT ?", (project_id, rows))
+        for batch in batched(ids, sql_batch_size(connection)):
+            marks = ",".join("?" * len(batch))
+            connection.execute(f"DELETE FROM claim_evidence WHERE claim_id IN ({marks})", batch)
+            counts["validations"] = counts.get("validations", 0) + connection.execute(
+                f"DELETE FROM validations WHERE claim_id IN ({marks})", batch
+            ).rowcount
+            connection.execute(f"DELETE FROM claims WHERE id IN ({marks})", batch)
+        return len(ids)
+
+    def nodes(connection):
+        ids = _ids(connection, "SELECT rowid FROM nodes WHERE project_id=? LIMIT ?", (project_id, rows))
+        for batch in batched(ids, sql_batch_size(connection)):
+            connection.execute(f"DELETE FROM nodes WHERE rowid IN ({','.join('?' * len(batch))})", batch)
+        return len(ids)
+
+    def chunks(connection):
+        ids = [
+            int(value)
+            for value in _ids(
+                connection,
+                "SELECT c.id FROM chunks c JOIN source_versions v ON v.id=c.source_version_id "
+                "JOIN sources s ON s.id=v.source_id WHERE s.project_id=? LIMIT ?",
+                (project_id, rows),
+            )
+        ]
+        for batch in batched(ids, sql_batch_size(connection)):
+            marks = ",".join("?" * len(batch))
+            connection.execute(f"UPDATE edges SET evidence_chunk_id=NULL WHERE evidence_chunk_id IN ({marks})", batch)
+            connection.execute(f"DELETE FROM claim_evidence WHERE chunk_id IN ({marks})", batch)
+        counts["fts_rows"] = counts.get("fts_rows", 0) + delete_fts_for_chunks(connection, ids)
+        for batch in batched(ids, sql_batch_size(connection)):
+            connection.execute(f"DELETE FROM chunks WHERE id IN ({','.join('?' * len(batch))})", batch)
+        return len(ids)
+
+    def versions(connection):
+        ids = _ids(
+            connection,
+            "SELECT v.id FROM source_versions v JOIN sources s ON s.id=v.source_id WHERE s.project_id=? LIMIT ?",
+            (project_id, rows),
         )
-    ]
-    counts["edges"] = connection.execute("DELETE FROM edges WHERE project_id=?", (project_id,)).rowcount
-    # Edges of other projects never cite this project's chunks, but guard anyway.
-    for batch in batched(chunk_ids, sql_batch_size(connection)):
-        marks = ",".join("?" for _ in batch)
-        connection.execute(f"UPDATE edges SET evidence_chunk_id=NULL WHERE evidence_chunk_id IN ({marks})", batch)
-        connection.execute(f"DELETE FROM claim_evidence WHERE chunk_id IN ({marks})", batch)
-    claim_ids = [str(row[0]) for row in connection.execute("SELECT id FROM claims WHERE project_id=?", (project_id,))]
-    for batch in batched(claim_ids, sql_batch_size(connection)):
-        marks = ",".join("?" for _ in batch)
-        connection.execute(f"DELETE FROM claim_evidence WHERE claim_id IN ({marks})", batch)
-        counts["validations"] = counts.get("validations", 0) + connection.execute(
-            f"DELETE FROM validations WHERE claim_id IN ({marks})", batch
-        ).rowcount
-    counts["claims"] = connection.execute("DELETE FROM claims WHERE project_id=?", (project_id,)).rowcount
-    counts["nodes"] = connection.execute("DELETE FROM nodes WHERE project_id=?", (project_id,)).rowcount
-    counts["fts_rows"] = delete_fts_for_chunks(connection, chunk_ids)
-    for batch in batched(chunk_ids, sql_batch_size(connection)):
-        marks = ",".join("?" for _ in batch)
-        connection.execute(f"DELETE FROM chunks WHERE id IN ({marks})", batch)
-    counts["chunks"] = len(chunk_ids)
-    connection.execute(
-        "DELETE FROM source_versions WHERE source_id IN (SELECT id FROM sources WHERE project_id=?)",
-        (project_id,),
-    )
-    counts["sources"] = connection.execute("DELETE FROM sources WHERE project_id=?", (project_id,)).rowcount
-    for table in ("project_aliases", "runs", "run_budgets", "cache"):
-        counts[table] = connection.execute(f"DELETE FROM {table} WHERE project_id=?", (project_id,)).rowcount
-    connection.execute(
-        "DELETE FROM possible_project_matches WHERE left_project_id=? OR right_project_id=?",
-        (project_id, project_id),
-    )
-    connection.execute("DELETE FROM projects WHERE id=?", (project_id,))
+        for batch in batched(ids, sql_batch_size(connection)):
+            connection.execute(f"DELETE FROM source_versions WHERE id IN ({','.join('?' * len(batch))})", batch)
+        return len(ids)
+
+    def sources(connection):
+        ids = _ids(connection, "SELECT id FROM sources WHERE project_id=? LIMIT ?", (project_id, rows))
+        for batch in batched(ids, sql_batch_size(connection)):
+            connection.execute(f"DELETE FROM sources WHERE id IN ({','.join('?' * len(batch))})", batch)
+        return len(ids)
+
+    for name, work in (
+        ("edges", edges),
+        ("claims", claims),
+        ("nodes", nodes),
+        ("chunks", chunks),
+        ("source_versions", versions),
+        ("sources", sources),
+    ):
+        counts[name] = batcher.drain(work)
+
+    def finish(connection):
+        for table in ("project_aliases", "runs", "run_budgets", "cache"):
+            counts[table] = connection.execute(f"DELETE FROM {table} WHERE project_id=?", (project_id,)).rowcount
+        connection.execute(
+            "DELETE FROM possible_project_matches WHERE left_project_id=? OR right_project_id=?",
+            (project_id, project_id),
+        )
+        connection.execute("DELETE FROM projects WHERE id=?", (project_id,))
+
+    batcher.step(finish)
     return counts
 
 
-def _merge_into(connection, source: str, target: str) -> dict[str, object]:
-    """Keep the duplicate's history on the survivor, then drop its derived index.
-
-    Aliases, runs and budgets move. Proposed claims move. A validation moves to
-    the survivor's claim with the same normalized text; one without such a claim
-    stays put and blocks the merge so no named validation is ever lost.
-    """
+def _prepare_merge(connection, source: str, target: str) -> dict[str, object] | None:
+    """Move history from a duplicate to its survivor (idempotent). None means proceed."""
     orphaned = connection.execute(
         "SELECT COUNT(*) FROM validations v JOIN claims c ON c.id=v.claim_id "
         "WHERE c.project_id=? AND NOT EXISTS (SELECT 1 FROM claims t WHERE t.project_id=? "
@@ -295,12 +385,36 @@ def _merge_into(connection, source: str, target: str) -> dict[str, object]:
     _move(connection, "project_aliases", "project_id", source, target)
     connection.execute("UPDATE runs SET project_id=? WHERE project_id=?", (target, source))
     _move(connection, "run_budgets", "project_id", source, target)
-    counts = _delete_project_data(connection, source)
-    connection.execute(
-        "UPDATE projects SET corpus_version=corpus_version+1, updated_at=? WHERE id=?", (utc_now(), target)
-    )
-    connection.execute("DELETE FROM cache WHERE project_id=?", (target,))
-    return {"merged": True, "deleted": counts}
+    return None
+
+
+def _read_pending(connection) -> list[dict[str, str]] | None:
+    row = connection.execute("SELECT value FROM meta WHERE key=?", (PENDING_KEY,)).fetchone()
+    if row is None:
+        return None
+    try:
+        return list(json.loads(row[0]).get("items", []))
+    except (ValueError, AttributeError):
+        return None
+
+
+def _write_pending(connection, items: list[dict[str, str]]) -> None:
+    if items:
+        connection.execute(
+            "INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (PENDING_KEY, json.dumps({"schema": "rso-cleanup-pending/v1", "items": items})),
+        )
+    else:
+        connection.execute("DELETE FROM meta WHERE key=?", (PENDING_KEY,))
+
+
+def pending_cleanup(database: Database) -> list[dict[str, str]]:
+    database.initialize()
+    connection = database.connect()
+    try:
+        return _read_pending(connection) or []
+    finally:
+        connection.close()
 
 
 def apply_cleanup(
@@ -310,31 +424,103 @@ def apply_cleanup(
     prune: bool = True,
     include_protected: bool = False,
     project_ids: list[str] | None = None,
+    batch_rows: int = DEFAULT_BATCH_ROWS,
+    pause_seconds: float = DEFAULT_PAUSE_SECONDS,
+    progress=None,
 ) -> dict[str, object]:
+    """Apply a cleanup plan in short, resumable write transactions.
+
+    The work list is frozen in the ledger's meta table before anything is
+    deleted. A later --apply after an interruption finishes that list first,
+    so a partly deleted project is always completed rather than re-planned.
+    """
+    say = progress or (lambda message: None)
     plan = plan_cleanup(database)
     wanted = set(project_ids or [])
     results: list[dict[str, object]] = []
-    with database.transaction() as connection:
-        if merge:
-            for group in plan["merge_groups"]:
-                if group["action"] != "merge":
-                    continue
-                target = str(group["survivor"]["id"])
-                for item in group["merge"]:
+    started = time.monotonic()
+    connection = database.connect()
+    try:
+        connection.execute(f"PRAGMA busy_timeout = {int(CLEANUP_BUSY_TIMEOUT_MS)}")
+        batcher = _Batcher(connection, pause=pause_seconds, progress=say)
+        items = _read_pending(connection)
+        resumed = items is not None
+        if not resumed:
+            items = []
+            if merge:
+                for group in plan["merge_groups"]:
+                    if group["action"] != "merge":
+                        continue
+                    target = str(group["survivor"]["id"])
+                    for item in group["merge"]:
+                        if wanted and str(item["id"]) not in wanted:
+                            continue
+                        items.append({"action": "merge", "project": str(item["id"]), "into": target})
+            if prune:
+                for item in plan["prune"]:
                     if wanted and str(item["id"]) not in wanted:
                         continue
-                    outcome = _merge_into(connection, str(item["id"]), target)
-                    results.append({"action": "merge", "project": item["id"], "into": target} | outcome)
-        if prune:
-            for item in plan["prune"]:
-                if wanted and str(item["id"]) not in wanted:
-                    continue
-                if item["protected"] and not include_protected:
-                    results.append({"action": "prune", "project": item["id"], "skipped": "protected"})
-                    continue
-                counts = _delete_project_data(connection, str(item["id"]))
-                results.append({"action": "prune", "project": item["id"], "deleted": counts})
+                    if item["protected"] and not include_protected:
+                        results.append({"action": "prune", "project": item["id"], "skipped": "protected"})
+                        continue
+                    items.append({"action": "prune", "project": str(item["id"])})
+            frozen = list(items)
+            batcher.step(lambda c: _write_pending(c, frozen))
+        else:
+            say(f"resuming an interrupted cleanup: {len(items)} project(s) left")
+        total = len(items)
+        for index, item in enumerate(list(items), start=1):
+            project_id = item["project"]
+            exists = connection.execute("SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone()
+            outcome: dict[str, object] = {"action": item["action"], "project": project_id}
+            if item.get("into"):
+                outcome["into"] = item["into"]
+            if exists is None:
+                outcome["skipped"] = "already removed"
+            else:
+                blocked = None
+                if item["action"] == "merge":
+                    blocked = batcher.step(lambda c: _prepare_merge(c, project_id, item["into"]))
+                if blocked:
+                    outcome |= blocked
+                else:
+                    deleted = _delete_project_batched(batcher, project_id, batch_rows)
+                    if item["action"] == "merge":
+                        target = item["into"]
+                        batcher.step(
+                            lambda c: (
+                                c.execute(
+                                    "UPDATE projects SET corpus_version=corpus_version+1, updated_at=? WHERE id=?",
+                                    (utc_now(), target),
+                                ),
+                                c.execute("DELETE FROM cache WHERE project_id=?", (target,)),
+                            )
+                            and None
+                        )
+                        outcome["merged"] = True
+                    outcome["deleted"] = deleted
+            results.append(outcome)
+            items.remove(item)
+            remaining = list(items)
+            batcher.step(lambda c: _write_pending(c, remaining))
+            say(
+                f"[{index}/{total}] {item['action']} {project_id[:8]}: "
+                f"{(outcome.get('deleted') or {}).get('chunks', 0)} chunks, "
+                f"{outcome.get('skipped') or outcome.get('reason') or 'done'} "
+                f"({time.monotonic() - started:.0f}s, longest lock {batcher.longest_ms:.0f} ms)"
+            )
+    finally:
+        connection.close()
     plan["mode"] = "applied"
+    plan["resumed"] = resumed
     plan["results"] = results
+    plan["timing"] = {
+        "elapsed_seconds": round(time.monotonic() - started, 1),
+        "transactions": batcher.transactions,
+        "longest_lock_ms": round(batcher.longest_ms, 1),
+        "total_lock_ms": round(batcher.total_lock_ms, 1),
+        "batch_rows": batch_rows,
+        "pause_seconds": pause_seconds,
+    }
     plan["note"] = "Applied. Re-run ingest on surviving projects to refresh their corpus."
     return plan

@@ -8,6 +8,7 @@ import json
 import sqlite3
 import subprocess
 import tempfile
+import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -253,6 +254,116 @@ class CleanupTests(Fixture):
         candidate = next(item for item in plan["prune"] if item["path"] == str(worktree.resolve()))
         self.assertIn("agent_worktree", candidate["reasons"])
         self.assertIn("scratch_name", candidate["reasons"])
+
+
+class BatchedCleanupTests(CleanupTests):
+    def add_worktree(self, name: str) -> Path:
+        worktree = self.root / "repo" / ".claude" / "worktrees" / name
+        worktree.mkdir(parents=True)
+        for index in range(6):
+            (worktree / f"note{index}.md").write_text(
+                f"# Note {index}\n\nThe exporter must write {index} previews.\n", encoding="utf-8"
+            )
+        ingest_project(self.database, worktree, agent="t")
+        return worktree
+
+    def counts(self) -> dict:
+        tables = ("projects", "sources", "chunks", "chunk_fts", "chunk_fts_map", "claims", "nodes", "edges")
+        return {table: self.rows(f"SELECT COUNT(*) FROM {table}")[0][0] for table in tables}
+
+    def test_apply_commits_many_small_transactions_and_reports_timing(self):
+        self.split_registration()
+        self.add_worktree("agent-a0123456789abcdef")
+        messages = []
+        result = apply_cleanup(self.database, batch_rows=1, pause_seconds=0, progress=messages.append)
+        timing = result["timing"]
+        self.assertGreater(timing["transactions"], 10)
+        self.assertGreaterEqual(timing["longest_lock_ms"], 0)
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM projects")[0][0], 1)
+        after = self.counts()
+        self.assertEqual(after["chunk_fts"], after["chunks"])
+        self.assertEqual(after["chunk_fts_map"], after["chunks"])
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM meta WHERE key='cleanup_pending'")[0][0], 0)
+
+    def test_interrupted_apply_resumes_and_finishes_cleanly(self):
+        from rso_context import cleanup
+
+        self.split_registration()
+        self.add_worktree("agent-a0123456789abcdef")
+        self.add_worktree("agent-b0123456789abcdef")
+        original = cleanup._Batcher.step
+        calls = {"n": 0}
+
+        def flaky(batcher, work):
+            calls["n"] += 1
+            if calls["n"] == 12:
+                raise KeyboardInterrupt
+            return original(batcher, work)
+
+        with patch.object(cleanup._Batcher, "step", flaky):
+            with self.assertRaises(KeyboardInterrupt):
+                apply_cleanup(self.database, batch_rows=1, pause_seconds=0)
+        pending = plan_cleanup(self.database)["pending"]
+        self.assertTrue(pending)
+        self.assertGreater(self.rows("SELECT COUNT(*) FROM projects")[0][0], 1)
+        result = apply_cleanup(self.database, batch_rows=1, pause_seconds=0)
+        self.assertTrue(result["resumed"])
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM projects")[0][0], 1)
+        after = self.counts()
+        self.assertEqual(after["chunk_fts"], after["chunks"])
+        self.assertEqual(after["chunk_fts_map"], after["chunks"])
+        self.assertEqual(plan_cleanup(self.database)["pending"], [])
+        orphans = self.rows(
+            "SELECT COUNT(*) FROM chunks c LEFT JOIN source_versions v ON v.id=c.source_version_id WHERE v.id IS NULL"
+        )[0][0]
+        self.assertEqual(orphans, 0)
+
+    def test_concurrent_writer_is_not_locked_out(self):
+        import threading
+
+        self.split_registration()
+        for index in range(3):
+            self.add_worktree(f"agent-{index}0123456789abcdef")
+        errors, writes = [], []
+        stop = threading.Event()
+
+        def writer():
+            connection = sqlite3.connect(self.db_path, timeout=2)
+            try:
+                while not stop.is_set():
+                    try:
+                        connection.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('probe', ?)", (str(time.time()),))
+                        connection.commit()
+                        connection.execute("SELECT COUNT(*) FROM projects").fetchone()
+                        writes.append(1)
+                    except sqlite3.OperationalError as error:
+                        errors.append(str(error))
+                    time.sleep(0.005)
+            finally:
+                connection.close()
+
+        thread = threading.Thread(target=writer)
+        thread.start()
+        try:
+            apply_cleanup(self.database, batch_rows=2, pause_seconds=0.01)
+        finally:
+            stop.set()
+            thread.join()
+        self.assertEqual(errors, [])
+        self.assertGreater(len(writes), 0)
+
+
+class CompactTests(Fixture):
+    def test_compact_dry_run_estimates_and_yes_vacuums(self):
+        self.ingest()
+        dry = _run_cli("--db", str(self.db_path), "compact")["json"]
+        self.assertEqual(dry["mode"], "dry_run")
+        self.assertIn("locked", dry["warning"])
+        with contextlib.redirect_stderr(io.StringIO()):
+            done = _run_cli("--db", str(self.db_path), "compact", "--yes")["json"]
+        self.assertEqual(done["mode"], "applied")
+        self.assertEqual(done["after"]["free_bytes"], 0)
 
 
 class ValidationTests(Fixture):

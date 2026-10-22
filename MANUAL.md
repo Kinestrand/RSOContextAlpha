@@ -217,7 +217,9 @@ rso-context mcp --remove --client claude-code
 rso-context cleanup-projects
 ```
 
-prints a dry-run plan: merge groups (one folder registered under several identity keys, with the survivor that keeps the history) and prune candidates with reasons (`agent_worktree`, `temp_folder`, `path_missing`, `scratch_name`, `empty`). Projects with proposed or validated claims are marked `protected`. Nothing changes until you back up the ledger and run `cleanup-projects --apply --yes` (optionally `--only merge`, `--project-id <id>`). Merges keep aliases, runs, budgets, proposed claims, and named validations on the survivor; run `ingest` on the survivor afterwards.
+prints a dry-run plan: merge groups (one folder registered under several identity keys, with the survivor that keeps the history) and prune candidates with reasons (`agent_worktree`, `temp_folder`, `path_missing`, `scratch_name`, `empty`). Projects with proposed or validated claims are marked `protected`. Nothing changes until you back up the ledger and run `cleanup-projects --apply --yes` (optionally `--only merge`, `--project-id <id>`). Merges keep aliases, runs, budgets, proposed claims, and named validations on the survivor; run `ingest` on the survivor afterwards. `--apply` works in short write transactions (`--batch-rows`, default 2000, and `--pause-ms`, default 50), so other tools keep reading and writing while it runs, and prints progress to stderr. The work list is saved in the ledger before anything is deleted; if the apply is interrupted, run the same `--apply --yes` again and it finishes that list (the dry run shows it under `pending`).
+
+After a large cleanup, `rso-context compact` reports how much space VACUUM would reclaim. `rso-context compact --yes` runs VACUUM: it holds an exclusive lock on the whole ledger until it finishes and needs free disk space of about the database size, so back up first and run it when nothing else is using RSO.
 
 ## 9. Troubleshooting
 
@@ -274,7 +276,8 @@ and `--agent` values in repeatable agent workflows.
 | `propose` | File a positional suggestion; `--agent`, `--path` |
 | `pending` | List claims awaiting named validation; optional `--path` |
 | `record-validation` | Record an authorized decision for a claim id, 8+ char prefix, or `--text` with `--path`; `--validator`, `--result`, optional `--agent`, `--evidence` |
-| `cleanup-projects` | Report duplicate and junk project registrations; dry run unless `--apply --yes`; `--only merge|prune`, `--include-protected`, `--project-id` |
+| `cleanup-projects` | Report duplicate and junk project registrations; dry run unless `--apply --yes`; `--only merge|prune`, `--include-protected`, `--project-id`, `--batch-rows`, `--pause-ms`; resumable |
+| `compact` | Estimate reclaimable space; `--yes` runs VACUUM (exclusive lock) |
 | `usage` | Run counts by agent and project; optional `--since <ISO date>` |
 | `run-budget` | Inspect, set, or clear a budget; `--agent`, `--path`, optional `--set` or `--clear` |
 | `audit` | Compare a positional request and `--answer-file` against evidence |

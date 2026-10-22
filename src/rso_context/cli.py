@@ -415,8 +415,55 @@ def command_cleanup_projects(args: argparse.Namespace) -> int:
             prune=args.only in (None, "prune"),
             include_protected=args.include_protected,
             project_ids=args.project_id or None,
+            batch_rows=args.batch_rows,
+            pause_seconds=args.pause_ms / 1000.0,
+            progress=lambda message: print(message, file=sys.stderr, flush=True),
         )
     )
+    return 0
+
+
+def compact_estimate(database) -> dict[str, object]:
+    database.initialize()
+    connection = database.connect()
+    try:
+        page_size = connection.execute("PRAGMA page_size").fetchone()[0]
+        pages = connection.execute("PRAGMA page_count").fetchone()[0]
+        free = connection.execute("PRAGMA freelist_count").fetchone()[0]
+    finally:
+        connection.close()
+    return {
+        "database_bytes": page_size * pages,
+        "free_bytes": page_size * free,
+        "estimated_bytes_after": page_size * (pages - free),
+        "free_fraction": round(free / pages, 4) if pages else 0.0,
+    }
+
+
+def command_compact(args: argparse.Namespace) -> int:
+    database = _database(args)
+    estimate = compact_estimate(database)
+    warning = (
+        "VACUUM rewrites the whole ledger and holds an exclusive lock until it finishes; "
+        "every other RSO tool will see 'database is locked' meanwhile. It needs free disk "
+        "space of about the database size. Back up first and run it when nothing else is using RSO."
+    )
+    if not args.yes:
+        _print({"schema": "rso-compact/v1", "mode": "dry_run", "warning": warning, **estimate,
+                "note": "Nothing changed. Re-run with --yes to VACUUM."})
+        return 0
+    print(warning, file=sys.stderr, flush=True)
+    started = time.monotonic()
+    connection = database.connect()
+    try:
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        connection.execute("VACUUM")
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        connection.close()
+    after = compact_estimate(database)
+    _print({"schema": "rso-compact/v1", "mode": "applied", "before": estimate, "after": after,
+            "elapsed_seconds": round(time.monotonic() - started, 1)})
     return 0
 
 
@@ -836,8 +883,26 @@ def build_parser() -> argparse.ArgumentParser:
     cleanup_parser.add_argument(
         "--project-id", action="append", help="Limit --apply to these project ids (repeatable)"
     )
+    cleanup_parser.add_argument(
+        "--batch-rows",
+        type=int,
+        default=2000,
+        help="Rows deleted per write transaction during --apply (default 2000)",
+    )
+    cleanup_parser.add_argument(
+        "--pause-ms",
+        type=int,
+        default=50,
+        help="Pause between write transactions so other tools get the lock (default 50)",
+    )
     cleanup_parser.set_defaults(function=command_cleanup_projects)
 
+    compact_parser = subparsers.add_parser(
+        "compact",
+        help="Reclaim free space with VACUUM (dry run by default; locks the ledger while it runs)",
+    )
+    compact_parser.add_argument("--yes", action="store_true", help="Run VACUUM now (exclusive lock)")
+    compact_parser.set_defaults(function=command_compact)
     usage_parser = subparsers.add_parser("usage", help="Run counts by agent and project")
     usage_parser.add_argument("--since", help="ISO timestamp lower bound, e.g. 2026-10-01")
     usage_parser.set_defaults(function=command_usage)
