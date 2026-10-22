@@ -1,5 +1,15 @@
 # RSO verification status
 
+## 0.10.0, October 21
+
+- Full unit suite: 197 tests pass on Linux (Python 3, 4 skipped) and on Windows (Python 3.12, 1 skipped).
+- Query latency on a production-sized ledger (about 1.7M chunks, 3.1M edges, 12 fixed queries, cache off): median 98.0 s to 0.55 s, p90 204.7 s to 0.98 s.
+- Packet cache: repeated queries hit across agents, path spellings, and whitespace variants (about 0.1-0.3 s per hit) with identical evidence; a changed source invalidates the entry.
+- Schema migration v6 to v7 on the same ledger: about 20-30 s, once.
+- `doctor` without `--integrity`: about 2-3 s on the same ledger.
+- `rso_use` over MCP on a project whose single file held about 37k chunks: no SQL variable overflow; low-limit batching covered by unit test.
+- `cleanup-projects` dry run on the same ledger: 4 merge groups and 87 prune candidates reported; nothing changed.
+
 ## 0.9.4, September 28
 
 Release checks for 0.9.4 on Windows 11: 176 regression tests passed with one
