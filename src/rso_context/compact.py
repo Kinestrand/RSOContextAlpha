@@ -332,6 +332,61 @@ def _conflict_witness(conflict: list[dict[str, object]]) -> list[dict[str, objec
     return best
 
 
+OMITTED_LIST_CAP = 4
+MIN_TRIM_ROOM = 300
+
+
+def _slim_ref(ref: object) -> object:
+    """Omitted refs drop chunk_hash; rso_expand does not need it."""
+    if isinstance(ref, dict):
+        return {key: value for key, value in ref.items() if key != "chunk_hash"}
+    return ref
+
+
+def _trim_to_fit(
+    compact: dict[str, object],
+    kept: list[dict[str, object]],
+    item: dict[str, object],
+    budget: int,
+) -> dict[str, object] | None:
+    """Keep the leading whole lines of an excerpt that fit; mark it truncated.
+
+    ``expand`` keeps the full original range, so the rest is one call away.
+    Used instead of dropping the span, which left 4 KB packets with metadata
+    and no evidence.
+    """
+    if item.get("stale") or not item.get("text"):
+        return None
+    probe = dict(item, text="", truncated=True)
+    compact["evidence"] = kept + [probe]
+    room = budget - serialized_bytes(compact)
+    compact["evidence"] = kept
+    if room < MIN_TRIM_ROOM:
+        return None
+    lines = str(item["text"]).split("\n")
+    chosen: list[str] = []
+    used = 0
+    for line in lines:
+        cost = len(json.dumps(line, ensure_ascii=True)) - 1
+        if used + cost > room:
+            break
+        chosen.append(line)
+        used += cost
+    if not chosen:
+        # One very long line: cut it at the character level.
+        text = lines[0][: max(0, room - 16)]
+        while text and len(json.dumps(text, ensure_ascii=True)) > room:
+            text = text[: int(len(text) * 0.9)]
+        if not text:
+            return None
+        chosen = [text]
+    trimmed = dict(item)
+    trimmed["text"] = "\n".join(chosen)
+    trimmed["line_end"] = int(item["line_start"]) + len(chosen) - 1
+    trimmed["truncated"] = True
+    return trimmed
+
+
 def compact_packet(
     packet: dict[str, object],
     *,
@@ -376,15 +431,42 @@ def compact_packet(
 
     kept = list(compact["evidence"])
     omitted: list[dict[str, object]] = list(compact.get("omitted") or [])
+    # Room kept free for the omitted refs and size stamps added after this loop.
+    reserve = 240 * min(OMITTED_LIST_CAP, max(0, len(ordinary) - 1)) + 64
     for item in ordinary:
         compact["evidence"] = kept + [item]
-        if _fits(compact, budget):
+        if _fits(compact, budget - reserve):
             kept.append(item)
+            continue
+        trimmed = _trim_to_fit(compact, kept, item, budget - reserve)
+        if trimmed is not None:
+            kept.append(trimmed)
+            omitted.append({"reason": "truncated", "expand": _slim_ref(item.get("expand"))})
         else:
-            omitted.append({"reason": "byte_budget", "expand": item.get("expand")})
+            omitted.append({"reason": "byte_budget", "expand": _slim_ref(item.get("expand"))})
     compact["evidence"] = kept
-    compact["omitted"] = omitted
+    compact["omitted"] = omitted[:OMITTED_LIST_CAP]
     compact["omitted_count"] = len(omitted)
+    # Now that the omitted list is known, shrink the last span rather than drop it.
+    floor = len(conflict) if conflict else 0
+    while len(kept) > floor:
+        _stamp_size(compact)
+        if _fits(compact, budget - 8):
+            break
+        last = kept.pop()
+        compact["evidence"] = kept
+        shrunk = _trim_to_fit(compact, kept, last, budget - 24)
+        if shrunk is not None and len(str(shrunk["text"])) < len(str(last["text"])):
+            kept.append(shrunk)
+        elif shrunk is None:
+            omitted.insert(0, {"reason": "byte_budget", "expand": _slim_ref(last.get("expand"))})
+            compact["omitted"] = omitted[:OMITTED_LIST_CAP]
+            compact["omitted_count"] = len(omitted)
+        else:
+            kept.append(shrunk)
+            compact["evidence"] = kept
+            break
+        compact["evidence"] = kept
     result = _finalize(compact, budget, protect_conflict=bool(conflict and kept[: len(conflict)] == conflict))
     return _explain_degraded(result, candidates, budget, packet)
 

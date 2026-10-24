@@ -878,6 +878,7 @@ def cache_key_for(
 
 BOARD_DIR_NAMES = frozenset({".agent-coordination", "agent-coordination", ".board", "board", "inbox"})
 CLAIM_MIN_WORDS = 4
+MERGE_MAX_CHARS = 2_400
 CLAIM_MAX_CHARS = 400
 
 
@@ -933,6 +934,7 @@ def _merge_adjacent(hits: list[dict[str, object]]) -> list[dict[str, object]]:
                 current is not None
                 and bool(current["stale"]) == bool(hit["stale"])
                 and int(hit["line_start"]) <= int(current["line_end"]) + 1
+                and len(str(current["text"])) + len(str(hit["text"])) <= MERGE_MAX_CHARS
             ):
                 if int(hit["line_end"]) > int(current["line_end"]):
                     current["text"] = str(current["text"]).rstrip("\n") + "\n" + str(hit["text"])
