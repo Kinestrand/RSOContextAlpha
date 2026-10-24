@@ -76,7 +76,11 @@ def _prefix_token(token: str) -> str:
 
 
 def _fts_expressions(value: str, project_ids: list[str] | None = None) -> list[str]:
-    """AND of all terms first, then an OR fallback with prefix matching."""
+    """AND of all terms, then OR of all terms, then OR with prefix matching.
+
+    Porter stemming already folds plurals and verb forms, so the prefix pass
+    is a last resort that runs only when nothing else matched.
+    """
     del project_ids  # project scope is SQL IN, never FTS (UUID hyphens break MATCH)
     tokens = _tokens(value)
     if not tokens:
@@ -85,12 +89,10 @@ def _fts_expressions(value: str, project_ids: list[str] | None = None) -> list[s
     expressions: list[str] = []
     if 2 <= len(escaped) <= AND_MAX_TOKENS:
         expressions.append(" AND ".join(escaped))
-    if len(escaped) == 1:
-        expressions.append(escaped[0])
-        if _prefix_token(tokens[0]) != escaped[0]:
-            expressions.append(_prefix_token(tokens[0]))
-    else:
-        expressions.append(" OR ".join(_prefix_token(token) for token in tokens))
+    expressions.append(" OR ".join(escaped))
+    prefixed = " OR ".join(_prefix_token(token) for token in tokens)
+    if prefixed != expressions[-1]:
+        expressions.append(prefixed)
     deduped: list[str] = []
     for expression in expressions:
         if expression not in deduped:
@@ -754,6 +756,8 @@ def _retrieve_requirement(
     for position, expression in enumerate(expressions):
         if len(rows) >= want:
             break
+        if "*" in expression and rows:
+            break  # prefix pass only when nothing else matched
         is_or_fallback = " OR " in expression and (position > 0 or len(expressions) == 1)
         filtering = strict_or and is_or_fallback and len(tokens) >= OR_MIN_COVERAGE_TOKENS
         found = _query_one(
