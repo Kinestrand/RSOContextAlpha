@@ -231,7 +231,7 @@ class SearchTests(Fixture):
 
     def test_migration_from_v7_keeps_indexed_rows(self):
         self.ingest()
-        with sqlite3.connect(self.db_path) as connection:
+        with contextlib.closing(sqlite3.connect(self.db_path)) as connection, connection:
             count = connection.execute("SELECT COUNT(*) FROM chunk_fts").fetchone()[0]
             connection.execute("DROP TABLE chunk_fts")
             connection.execute(
@@ -245,7 +245,7 @@ class SearchTests(Fixture):
             )
             connection.execute("UPDATE meta SET value='7' WHERE key='schema_version'")
         self.database.initialize()
-        with sqlite3.connect(self.db_path) as connection:
+        with contextlib.closing(sqlite3.connect(self.db_path)) as connection:
             sql = connection.execute("SELECT sql FROM sqlite_master WHERE name='chunk_fts'").fetchone()[0]
             rows = connection.execute("SELECT COUNT(*) FROM chunk_fts").fetchone()[0]
             version = connection.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
