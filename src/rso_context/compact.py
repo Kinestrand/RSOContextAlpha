@@ -133,6 +133,15 @@ def excerpts_for_hit(hit: dict[str, object], query: str) -> list[dict[str, objec
     return [_excerpt(hit, chunk, start, end) for start, end, chunk in groups]
 
 
+CLAIM_LIST_CAP = 3
+CLAIM_TEXT_CAP = 200
+
+
+def _short(value: object, cap: int) -> object:
+    text = str(value or "")
+    return text if len(text) <= cap else text[: cap - 3].rstrip() + "..."
+
+
 def _skeleton(packet: dict[str, object], byte_budget: int) -> dict[str, object]:
     requirements = []
     for item in packet.get("requirements") or []:
@@ -145,12 +154,12 @@ def _skeleton(packet: dict[str, object], byte_budget: int) -> dict[str, object]:
             }
         )
     claims = []
-    for claim in packet.get("claims") or []:
+    for claim in (packet.get("claims") or [])[:CLAIM_LIST_CAP]:
         claims.append(
             {
                 "id": claim.get("id"),
                 "trust_state": claim.get("trust_state"),
-                "display_text": claim.get("display_text"),
+                "display_text": _short(claim.get("display_text"), CLAIM_TEXT_CAP),
             }
         )
     return {
@@ -332,7 +341,7 @@ def _conflict_witness(conflict: list[dict[str, object]]) -> list[dict[str, objec
     return best
 
 
-OMITTED_LIST_CAP = 4
+OMITTED_LIST_CAP = 3
 MIN_TRIM_ROOM = 300
 
 
@@ -429,10 +438,17 @@ def compact_packet(
                 )
             conflict = witness
 
+    if ordinary and not compact["evidence"]:
+        # Evidence outranks claim text and requirement echoes in a small packet.
+        if serialized_bytes(compact) > budget * 0.4:
+            _slim_metadata(compact)
     kept = list(compact["evidence"])
     omitted: list[dict[str, object]] = list(compact.get("omitted") or [])
     # Room kept free for the omitted refs and size stamps added after this loop.
-    reserve = 240 * min(OMITTED_LIST_CAP, max(0, len(ordinary) - 1)) + 64
+    reserve = sum(
+        serialized_bytes({"reason": "byte_budget", "expand": _slim_ref(item.get("expand"))}) + 1
+        for item in ordinary[1 : 1 + OMITTED_LIST_CAP]
+    ) + 64
     for item in ordinary:
         compact["evidence"] = kept + [item]
         if _fits(compact, budget - reserve):

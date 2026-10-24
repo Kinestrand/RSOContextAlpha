@@ -98,7 +98,7 @@ class CompactBudgetTests(Fixture):
         compact = _run_cli("--db", str(self.db_path), "query", "widgets limit approved", "--path", str(self.root))["json"]
         self.assertLessEqual(compact["byte_count"], 4_000)
         self.assertGreaterEqual(len(compact["evidence"]), 1)
-        self.assertLessEqual(len(compact["omitted"]), 4)
+        self.assertLessEqual(len(compact["omitted"]), 3)
         trimmed = [item for item in compact["evidence"] if item.get("truncated")]
         for item in trimmed:
             self.assertGreater(item["expand"]["line_end"], item["line_end"] - 1)
