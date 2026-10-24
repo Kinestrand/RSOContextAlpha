@@ -89,6 +89,13 @@ def _fts_expressions(value: str, project_ids: list[str] | None = None) -> list[s
     expressions: list[str] = []
     if 2 <= len(escaped) <= AND_MAX_TOKENS:
         expressions.append(" AND ".join(escaped))
+    if 3 <= len(escaped) <= 6:
+        # "Most terms": any n-1 of the n terms together, before a plain OR.
+        subsets = [
+            "(" + " AND ".join(term for index, term in enumerate(escaped) if index != skip) + ")"
+            for skip in range(len(escaped))
+        ]
+        expressions.append(" OR ".join(subsets))
     expressions.append(" OR ".join(escaped))
     prefixed = " OR ".join(_prefix_token(token) for token in tokens)
     if prefixed != expressions[-1]:
@@ -343,7 +350,7 @@ def _query_one(
                END AS scope_priority,
                fts.text_rank AS text_rank
         FROM (
-            SELECT chunk_id AS fts_chunk_id, bm25(chunk_fts, 1.0, 2.0, 1.5, 0.0, 0.0) AS text_rank
+            SELECT chunk_id AS fts_chunk_id, bm25(chunk_fts, 1.0, 1.5, 1.0, 0.0, 0.0) AS text_rank
             FROM chunk_fts
             WHERE chunk_fts MATCH ?
             ORDER BY text_rank
@@ -758,7 +765,7 @@ def _retrieve_requirement(
             break
         if "*" in expression and rows:
             break  # prefix pass only when nothing else matched
-        is_or_fallback = " OR " in expression and (position > 0 or len(expressions) == 1)
+        is_or_fallback = " OR " in expression and "(" not in expression and (position > 0 or len(expressions) == 1)
         filtering = strict_or and is_or_fallback and len(tokens) >= OR_MIN_COVERAGE_TOKENS
         found = _query_one(
             connection,
