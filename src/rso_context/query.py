@@ -772,7 +772,7 @@ def _retrieve_requirement(
             expression=expression,
             project_id=project_id,
             shared_ids=shared_ids,
-            limit=want * 2 if filtering else want,
+            limit=want * 4 if filtering else want,
             path=path,
         )
         if filtering and found:
