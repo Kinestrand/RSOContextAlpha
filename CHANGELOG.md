@@ -20,7 +20,7 @@ Leaner packets, cheaper writes, better recall per byte.
   files, *.min.js, *.map) and indexes a repeated chunk inside one file once.
 - Edited files no longer return empty evidence: the query re-ingests just those files and retries;
   with refresh off, the indexed copy is returned labelled stale.
-- Schema 8: FTS5 porter stemming with a prefix index (rebuilt from the existing index on
+- Schema revision 8 (compatible with schema_version 7, so running 0.10 servers keep working): FTS5 porter stemming with a prefix index (rebuilt from the existing index on
   migration, orphan rows dropped), larger stop-word list, bm25 column weights, AND-first query
   planning with OR fill.
 - Ingest reads and hashes files outside the write lock, writes only changed files, and commits in

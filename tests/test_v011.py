@@ -15,7 +15,7 @@ from rso_context import mcp_server
 from rso_context.audit import record_validation
 from rso_context.cli import main
 from rso_context.config import Limits
-from rso_context.db import SCHEMA_VERSION, Database
+from rso_context.db import SCHEMA_REVISION, SCHEMA_VERSION, Database
 from rso_context.ingest import chunk_text, ingest_project, use_workspace
 from rso_context.prune import plan_orphans, prune_orphans
 from rso_context.query import _fts_expressions, query_context
@@ -216,7 +216,7 @@ class SearchTests(Fixture):
     def test_schema_8_uses_porter_stemming(self):
         self.policy.write_text("Decision: the widget must be blue.\n", encoding="utf-8")
         self.ingest()
-        self.assertEqual(SCHEMA_VERSION, 8)
+        self.assertEqual((SCHEMA_VERSION, SCHEMA_REVISION), (7, 8))
         packet = self.query("widgets")
         self.assertEqual(packet["requirements"][0]["status"], "evidence_found")
 
@@ -243,15 +243,17 @@ class SearchTests(Fixture):
                 "('Decision: widgets must be blue.','', 'policy.md','x',"
                 "(SELECT MIN(id) FROM chunks)), ('orphan','','gone.md','x',999999)"
             )
-            connection.execute("UPDATE meta SET value='7' WHERE key='schema_version'")
+            connection.execute("DELETE FROM meta WHERE key='schema_revision'")
         self.database.initialize()
         with contextlib.closing(sqlite3.connect(self.db_path)) as connection:
             sql = connection.execute("SELECT sql FROM sqlite_master WHERE name='chunk_fts'").fetchone()[0]
             rows = connection.execute("SELECT COUNT(*) FROM chunk_fts").fetchone()[0]
-            version = connection.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
+            version = connection.execute("SELECT value FROM meta WHERE key='schema_revision'").fetchone()[0]
+            hard = connection.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0]
         self.assertIn("porter", sql)
         self.assertEqual(rows, 1)  # orphan row dropped
         self.assertEqual(version, "8")
+        self.assertEqual(hard, "7")  # 0.10 servers that are still running keep working
         self.assertGreaterEqual(count, 1)
 
 

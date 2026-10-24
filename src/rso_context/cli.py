@@ -21,7 +21,7 @@ from .audit import (
     validate_graph,
 )
 from .config import Limits, automatic_discovery_roots, default_db_path
-from .db import SCHEMA_VERSION, Database, read_schema_version
+from .db import SCHEMA_REVISION, SCHEMA_VERSION, Database, read_schema_revision, read_schema_version
 from .discovery import discover_and_register
 from .identity import project_explanation, register_project, resolve_existing_project
 from .admin import serve_admin
@@ -610,6 +610,8 @@ def command_doctor(args: argparse.Namespace) -> int:
         checks["sqlite"] = sqlite3.sqlite_version
         checks["schema_version"] = read_schema_version(connection)
         checks["code_schema_version"] = SCHEMA_VERSION
+        checks["schema_revision"] = read_schema_revision(connection)
+        checks["code_schema_revision"] = SCHEMA_REVISION
         # A full quick_check reads every page: minutes on a multi-GB ledger. It
         # runs only with --integrity; the default reads the header and schema.
         if getattr(args, "integrity", False):

@@ -7,7 +7,12 @@ from pathlib import Path
 from typing import Iterator
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 7
+# Compatible revisions on top of SCHEMA_VERSION. Older code still opens a
+# ledger at a higher revision (its guard only reads schema_version), so a
+# revision migration never breaks MCP servers that are already running.
+# Revision 8: porter-stemmed FTS with a prefix index.
+SCHEMA_REVISION = 8
 
 
 class SchemaVersionError(ValueError):
@@ -385,6 +390,33 @@ def _chunk_fts_is_v8(connection: sqlite3.Connection) -> bool:
     return "porter" in sql and "prefix" in sql
 
 
+def read_schema_revision(connection: sqlite3.Connection) -> int:
+    try:
+        row = connection.execute("SELECT value FROM meta WHERE key='schema_revision'").fetchone()
+    except sqlite3.OperationalError:
+        return 0
+    try:
+        return int(row[0]) if row is not None else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _ensure_revision(connection: sqlite3.Connection) -> None:
+    if read_schema_revision(connection) >= SCHEMA_REVISION:
+        return
+    if connection.in_transaction:
+        connection.commit()
+    connection.execute("BEGIN IMMEDIATE")
+    if read_schema_revision(connection) < SCHEMA_REVISION:
+        _migrate_v8(connection)
+        connection.execute(
+            "INSERT INTO meta(key, value) VALUES('schema_revision', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (str(SCHEMA_REVISION),),
+        )
+    connection.commit()
+
+
 def _migrate_v8(connection: sqlite3.Connection) -> dict[str, int]:
     """Porter stemming and a prefix index on chunk_fts.
 
@@ -491,8 +523,6 @@ def _migrate(connection: sqlite3.Connection, from_version: int) -> None:
         _migrate_v6(connection)
     if from_version < 7:
         _migrate_v7(connection)
-    if from_version < 8:
-        _migrate_v8(connection)
     _write_schema_version(connection, SCHEMA_VERSION)
 
 
@@ -517,6 +547,11 @@ class Database:
 
     def initialize(self) -> None:
         with self.connect() as connection:
+            self._initialize_schema(connection)
+            _ensure_revision(connection)
+
+    def _initialize_schema(self, connection: sqlite3.Connection) -> None:
+        if True:
             has_meta = connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'"
             ).fetchone()
@@ -601,11 +636,14 @@ class Database:
                 "SELECT id, display_name, scope, corpus_version FROM projects ORDER BY display_name"
             ).fetchall()
             db_schema_version = read_schema_version(connection)
+            db_schema_revision = read_schema_revision(connection)
         return {
             "database": str(self.path),
             "schema_version": db_schema_version,
             "db_schema_version": db_schema_version,
             "code_schema_version": SCHEMA_VERSION,
+            "schema_revision": db_schema_revision,
+            "code_schema_revision": SCHEMA_REVISION,
             "counts": counts,
             "projects": [dict(row) for row in project_rows],
         }
