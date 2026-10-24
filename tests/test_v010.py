@@ -169,14 +169,15 @@ class CacheTests(Fixture):
         extra.write_text("widgets are discussed here too.\n", encoding="utf-8")
         self.ingest()
         extra.write_text("changed without ingest\n", encoding="utf-8")
-        first = query_context(self.database, "widgets", path=self.workspace, agent="a")
+        first = query_context(self.database, "widgets", path=self.workspace, agent="a", refresh_stale=False)
         self.assertTrue(any(item["stale"] for item in first["evidence"]))
         with patch("rso_context.query._retrieve_requirement", side_effect=AssertionError("cache missed")):
-            second = query_context(self.database, "widgets", path=self.workspace, agent="b")
+            second = query_context(self.database, "widgets", path=self.workspace, agent="b",
+                                   refresh_stale=False)
         self.assertTrue(second["cache"]["hit"])
         # Restoring the stale file changes its state, so the entry is rebuilt.
         extra.write_text("widgets are discussed here too.\n", encoding="utf-8")
-        third = query_context(self.database, "widgets", path=self.workspace, agent="b")
+        third = query_context(self.database, "widgets", path=self.workspace, agent="b", refresh_stale=False)
         self.assertFalse(third["cache"]["hit"])
 
 

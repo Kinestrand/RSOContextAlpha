@@ -1,5 +1,34 @@
 # Changelog
 
+
+## 0.11.0 (unreleased, branch feat/0.11.0-lean)
+
+Leaner packets, cheaper writes, better recall per byte.
+
+- Defaults: compact byte budget 12 KB -> 4 KB, query limit 8 -> 4 (rso_check keeps 8).
+- Graph nodes are off by default in query packets (`include_graph` / `--graph` to opt in).
+- CLI `query` prints the compact packet by default; `--full` returns rso-context-packet/v2.
+- `packet_hash` no longer covers budget counters (`run`), so budgeted and unbudgeted runs hash alike.
+- MCP server instructions drop the "call rso_use first" rule. `rso_use` on a known project is a
+  read-only freshness check plus a small targeted refresh, never a whole-project ingest.
+- Per-file dedup (max 2 items per file), adjacent span merging, cross-file identical-chunk dedup.
+- Compact evidence items carry hashes and project id only inside `expand`.
+- Claims: capped at 4, short/code-like noise dropped, no unconditional verified/proposed boosts;
+  coordination-board paths rank after other hits.
+- Very long spans (one-line or minified files) are windowed around the match in packets.
+- Ingest skips vendored and generated content (third_party, worktrees, nested checkouts, lock
+  files, *.min.js, *.map) and indexes a repeated chunk inside one file once.
+- Edited files no longer return empty evidence: the query re-ingests just those files and retries;
+  with refresh off, the indexed copy is returned labelled stale.
+- Schema 8: FTS5 porter stemming with a prefix index (rebuilt from the existing index on
+  migration, orphan rows dropped), larger stop-word list, bm25 column weights, AND-first query
+  planning with OR fill.
+- Ingest reads and hashes files outside the write lock, writes only changed files, and commits in
+  batches of 200 files.
+- New `prune-orphans` command removes chunks of superseded file versions (protected claim evidence
+  kept); dry run unless `--apply --yes`.
+- A query performs at most one write transaction (budget, cache and run record together).
+
 ## 0.10.0
 
 ### Fixed

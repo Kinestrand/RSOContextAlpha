@@ -539,7 +539,7 @@ def check_questions(
     path: str | Path | None = None,
     project_id: str | None = None,
     agent: str = "unknown",
-    limit: int = Limits.query_limit,
+    limit: int = Limits.check_limit,
     roots: list[Path] | None = None,
     replay: bool = False,
 ) -> dict[str, object]:

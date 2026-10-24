@@ -91,10 +91,30 @@ IGNORED_DIR_NAMES = {
     "site-packages",
     "target",
     "temp",
+    "third_party",
     "tmp",
     "vendor",
     "venv",
+    "worktrees",
+    ".worktrees",
 }
+
+# Generated or lock files: valid text, but noise for evidence retrieval.
+GENERATED_FILE_NAMES = {
+    "cargo.lock",
+    "composer.lock",
+    "gemfile.lock",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "poetry.lock",
+    "yarn.lock",
+}
+GENERATED_SUFFIXES = (".min.js", ".min.css", ".map", ".bundle.js")
+
+
+def is_generated_path(path: Path) -> bool:
+    name = path.name.casefold()
+    return name in GENERATED_FILE_NAMES or name.endswith(GENERATED_SUFFIXES)
 
 IGNORED_FILE_NAMES = {
     ".env",
@@ -215,7 +235,11 @@ class Limits:
     max_projects: int = 250
     max_discovery_depth: int = 5
     chunk_characters: int = 1_600
-    query_limit: int = 8
+    query_limit: int = 4
+    check_limit: int = 8
     query_token_budget: int = 4_000
-    compact_byte_budget: int = 12_000
+    compact_byte_budget: int = 4_000
+    max_items_per_file: int = 2
+    max_claims: int = 4
+    long_chunk_characters: int = 4_000
     coverage_gap_limit: int = 20

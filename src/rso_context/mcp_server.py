@@ -9,7 +9,7 @@ import sqlite3
 
 from . import __version__
 from .db import Database, SchemaVersionError
-from .ingest import ingest_project
+from .ingest import use_workspace
 from .mcp_contract import (
     ACCESS_OPEN,
     ACCESS_STRICT,
@@ -32,7 +32,8 @@ from .resume import resume_context
 INSTRUCTIONS = (
     "Local RSO Context evidence ledger over bounded folders. "
     "Pass the absolute path of the project folder you are working in as path. "
-    "Call rso_use on a folder once before rso_query, rso_check, or rso_resume. "
+    "rso_query works on any ingested folder; rso_use is optional and only needed "
+    "for a folder that has never been ingested or to refresh changed files. "
     "path must be a bounded project folder, never a user profile, Documents, "
     "Downloads, a drive root, or a system folder; under --strict-roots it must "
     "also sit under a launch --root. "
@@ -219,12 +220,12 @@ def build_server(*, db_path: str, roots: list[str], strict_roots: bool = False):
 
     @mcp.tool()
     def rso_use(path: str, agent: str) -> dict:
-        """Ingest a bounded workspace and return a resume packet. This writes."""
+        """First-time ingest, or a cheap freshness check plus small refresh, then a resume packet."""
 
         def run():
             resolved = workspace(path)
             attributed = require_agent(agent)
-            ingest = ingest_project(database, resolved, agent=attributed)
+            ingest = use_workspace(database, resolved, agent=attributed)
             packet = resume_context(database, path=resolved, agent=attributed)
             return {"schema": "rso-context-use/v1", "ingest": ingest, "resume": packet}
 
@@ -235,8 +236,8 @@ def build_server(*, db_path: str, roots: list[str], strict_roots: bool = False):
         query: str,
         path: str,
         agent: str,
-        limit: int = 8,
-        token_budget: int = 4000,
+        limit: int = Limits.query_limit,
+        token_budget: int = Limits.query_token_budget,
         compact: bool = True,
         byte_budget: int = Limits.compact_byte_budget,
     ):

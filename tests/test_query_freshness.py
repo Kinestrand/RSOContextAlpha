@@ -31,6 +31,8 @@ class QueryFreshnessTests(unittest.TestCase):
         return ingest_project(self.database, self.workspace, agent="freshness-test")
 
     def query(self, agent="a", **kwargs):
+        # These tests pin stale-plate labelling, so the edited-file refresh is off.
+        kwargs.setdefault("refresh_stale", False)
         return query_context(self.database, "widgets", path=self.workspace, agent=agent, **kwargs)
 
     def assert_unknown(self, packet):
@@ -86,13 +88,17 @@ class QueryFreshnessTests(unittest.TestCase):
         evidence = query_context(self.database, "unrelated", path=self.workspace, agent="fixture")
         claim = next(c for c in evidence["claims"] if "unrelated" in c["display_text"])
         record_validation(self.database, claim["id"], validator="fixture-validator", result="verified")
-        first = self.query()
+        # 0.11: verified claims are no longer added to unrelated packets.
+        self.assertNotIn(claim["id"], [c["id"] for c in self.query()["claims"]])
+        first = query_context(self.database, "unrelated components amber", path=self.workspace,
+                              agent="a", refresh_stale=False)
         self.assertIn(claim["id"], [c["id"] for c in first["claims"]])
         extra.unlink()
-        second = self.query("b")
+        second = query_context(self.database, "unrelated components amber", path=self.workspace,
+                               agent="b", refresh_stale=False)
         self.assertNotIn(claim["id"], [c["id"] for c in second["claims"]])
         self.assertFalse(second["validations"])
-        self.assertEqual(second["requirements"][0]["status"], "evidence_found")
+        self.assertEqual(self.query("b")["requirements"][0]["status"], "evidence_found")
 
     def test_stale_conflicting_plate_does_not_create_disagreement(self):
         extra = self.workspace / "extra.md"
@@ -106,11 +112,12 @@ class QueryFreshnessTests(unittest.TestCase):
         self.assertEqual(current["partition"]["leaves"][0]["evidence_count"], 1)
 
     def test_graph_backing_is_checked_when_no_text_hits_are_requested(self):
-        first = self.query(limit=0)
+        first = self.query(limit=0, include_graph=True)
         self.assertFalse(first["evidence"])
         self.assertTrue(first["graph_nodes"])
+        self.assertFalse(self.query("c", limit=0)["graph_nodes"])  # off by default
         self.policy.unlink()
-        second = self.query("b", limit=0)
+        second = self.query("b", limit=0, include_graph=True)
         self.assertFalse(second["graph_nodes"])
         self.assertEqual(second["requirements"][0]["status"], "unknown")
 

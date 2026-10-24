@@ -17,6 +17,7 @@ from .config import (
     TEXT_EXTENSIONS,
     Limits,
     git_executable,
+    is_generated_path,
     is_sensitive_path,
 )
 from .db import Database, batched, sql_batch_size, delete_fts_for_chunks, fts_rowids_for_chunks, insert_fts, json_text
@@ -98,6 +99,8 @@ def file_exclusion_reason(path: Path, limits: Limits) -> str | None:
             return "unreadable"
         if is_sensitive_path(path):
             return "sensitive_name"
+        if is_generated_path(path):
+            return "generated"
         suffix = path.suffix.lower()
         if suffix not in TEXT_EXTENSIONS and suffix not in DOCUMENT_EXTENSIONS:
             return "unsupported_type"
@@ -188,6 +191,7 @@ class _Coverage:
             "symlink": 0,
             "unreadable": 0,
             "sensitive_content": 0,
+            "generated": 0,
             "stat_error": 0,
         }
         self.gaps: list[dict[str, str]] = []
@@ -220,7 +224,8 @@ def _walk_project_files(root: Path, limits: Limits, coverage: _Coverage | None =
     for current, dirnames, filenames in os.walk(root):
         kept: list[str] = []
         for name in sorted(dirnames):
-            if name.casefold() in IGNORED_DIR_NAMES or name.startswith("."):
+            nested_checkout = os.path.lexists(os.path.join(current, name, ".git"))
+            if name.casefold() in IGNORED_DIR_NAMES or name.startswith(".") or nested_checkout:
                 if coverage is not None:
                     coverage.note(Path(current) / name, root, "ignored_dir")
                 continue
@@ -281,7 +286,10 @@ def iter_project_files(root: Path, limits: Limits) -> list[Path]:
 
 
 def _decode_text(path: Path) -> str:
-    data = path.read_bytes()
+    return _decode_bytes(path.read_bytes())
+
+
+def _decode_bytes(data: bytes) -> str:
     if b"\x00" in data[:4096]:
         raise ValueError("binary content")
     for encoding in ("utf-8-sig", "utf-8", "utf-16", "cp1252"):
@@ -559,6 +567,184 @@ def _extract_graph(
     return entity_count, claim_count
 
 
+INGEST_BATCH_FILES = 200
+
+
+@dataclass
+class _PreparedFile:
+    path_obj: Path
+    resolved_path: str
+    relative_path: str
+    size_bytes: int
+    mtime_ns: int
+    text: str
+    content_hash: str
+
+
+def _read_text_and_hash(path: Path) -> tuple[str, str]:
+    """Read a file once: its sha256 (same as sha256_file) and its text."""
+    data = path.read_bytes()
+    content_hash = hashlib.sha256(data).hexdigest()
+    if path.suffix.lower() == ".docx":
+        return _docx_text(path), content_hash
+    return _decode_bytes(data), content_hash
+
+
+def _write_prepared(
+    connection,
+    item: _PreparedFile,
+    *,
+    project_id: str,
+    now: str,
+    limits: Limits,
+    ingest_paths: set[str],
+    counters: dict[str, int],
+) -> None:
+    """Write one changed file. Runs inside a write transaction; never reads the file."""
+    path_obj = item.path_obj
+    resolved_path = item.resolved_path
+    relative_path = item.relative_path
+    content_hash = item.content_hash
+    text = item.text
+    source = connection.execute(
+        "SELECT * FROM sources WHERE project_id=? AND resolved_path=?",
+        (project_id, resolved_path),
+    ).fetchone()
+    if source is not None and source["current_hash"] == content_hash:
+        connection.execute(
+            "UPDATE sources SET size_bytes=?,mtime_ns=?,active=1,last_seen=? WHERE id=?",
+            (item.size_bytes, item.mtime_ns, now, source["id"]),
+        )
+        counters["files_unchanged"] += 1
+        return
+    if source is None:
+        hash_matches = connection.execute(
+            "SELECT * FROM sources WHERE project_id=? AND current_hash=?",
+            (project_id, content_hash),
+        ).fetchall()
+        rename_source = None
+        if len(hash_matches) == 1:
+            candidate = hash_matches[0]
+            if os.path.normcase(str(candidate["resolved_path"])) not in ingest_paths:
+                rename_source = candidate
+        if rename_source is not None:
+            source_id = int(rename_source["id"])
+            connection.execute(
+                "UPDATE sources SET resolved_path=?,relative_path=?,media_type=?,"
+                "size_bytes=?,mtime_ns=?,active=1,last_seen=? WHERE id=?",
+                (resolved_path, relative_path, _media_type(path_obj), item.size_bytes,
+                 item.mtime_ns, now, source_id),
+            )
+            chunk_ids = [
+                int(row[0])
+                for row in connection.execute(
+                    "SELECT c.id FROM chunks c "
+                    "JOIN source_versions v ON v.id=c.source_version_id "
+                    "WHERE v.source_id=?",
+                    (source_id,),
+                )
+            ]
+            for batch in batched(
+                fts_rowids_for_chunks(connection, chunk_ids), sql_batch_size(connection, reserve=9)
+            ):
+                placeholders = ",".join("?" for _ in batch)
+                connection.execute(
+                    f"UPDATE chunk_fts SET path=? WHERE rowid IN ({placeholders})",
+                    (relative_path, *batch),
+                )
+            counters["files_renamed"] += 1
+            return
+        cursor = connection.execute(
+            "INSERT INTO sources(project_id,resolved_path,relative_path,media_type,current_hash,"
+            "size_bytes,mtime_ns,active,first_seen,last_seen) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (project_id, resolved_path, relative_path, _media_type(path_obj), content_hash,
+             item.size_bytes, item.mtime_ns, 1, now, now),
+        )
+        source_id = int(cursor.lastrowid)
+        counters["files_added"] += 1
+    else:
+        source_id = int(source["id"])
+        old_chunk_ids = [
+            int(row[0])
+            for row in connection.execute(
+                "SELECT c.id FROM chunks c JOIN source_versions v ON v.id=c.source_version_id "
+                "WHERE v.source_id=?",
+                (source_id,),
+            )
+        ]
+        if old_chunk_ids:
+            delete_fts_for_chunks(connection, old_chunk_ids)
+        connection.execute(
+            "UPDATE sources SET relative_path=?,media_type=?,current_hash=?,size_bytes=?,"
+            "mtime_ns=?,active=1,last_seen=? WHERE id=?",
+            (relative_path, _media_type(path_obj), content_hash, item.size_bytes,
+             item.mtime_ns, now, source_id),
+        )
+        counters["files_updated"] += 1
+
+    version = connection.execute(
+        "SELECT id FROM source_versions WHERE source_id=? AND content_hash=?",
+        (source_id, content_hash),
+    ).fetchone()
+    if version is None:
+        version_cursor = connection.execute(
+            "INSERT INTO source_versions(source_id,content_hash,observed_at,text_length) "
+            "VALUES(?,?,?,?)",
+            (source_id, content_hash, now, len(text)),
+        )
+        version_id = int(version_cursor.lastrowid)
+        seen_chunk_hashes: set[str] = set()
+        for chunk in chunk_text(text, limits.chunk_characters):
+            chunk_hash = sha256_text(chunk.text)
+            # Content dedup: a span repeated inside one file is indexed once.
+            if chunk_hash in seen_chunk_hashes:
+                counters["chunks_deduplicated"] += 1
+                continue
+            seen_chunk_hashes.add(chunk_hash)
+            chunk_cursor = connection.execute(
+                "INSERT INTO chunks(source_version_id,ordinal,line_start,line_end,heading,text,chunk_hash) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (version_id, chunk.ordinal, chunk.line_start, chunk.line_end, chunk.heading, "", chunk_hash),
+            )
+            chunk_id = int(chunk_cursor.lastrowid)
+            insert_fts(
+                connection,
+                text=chunk.text,
+                heading=chunk.heading or "",
+                path=relative_path,
+                project_id=project_id,
+                chunk_id=chunk_id,
+            )
+            entity_count, claim_count = _extract_graph(
+                connection,
+                project_id=project_id,
+                source_id=source_id,
+                relative_path=relative_path,
+                chunk_id=chunk_id,
+                chunk=chunk,
+            )
+            counters["chunks_added"] += 1
+            counters["entities_observed"] += entity_count
+            counters["claims_observed"] += claim_count
+    else:
+        version_id = int(version["id"])
+        for row in connection.execute(
+            "SELECT id,text,heading,line_start,line_end FROM chunks "
+            "WHERE source_version_id=? ORDER BY ordinal",
+            (version_id,),
+        ).fetchall():
+            plate = slice_source_lines(text, int(row["line_start"]), int(row["line_end"]))
+            fts_body = plate or (row["text"] or "")
+            insert_fts(
+                connection,
+                text=fts_body,
+                heading=row["heading"] or "",
+                path=relative_path,
+                project_id=project_id,
+                chunk_id=int(row["id"]),
+            )
+
+
 def ingest_project(
     database: Database,
     path: str | Path,
@@ -567,7 +753,17 @@ def ingest_project(
     external_id: str | None = None,
     limits: Limits | None = None,
     scope: str = "project",
+    only_paths: list[str | Path] | None = None,
+    batch_files: int = INGEST_BATCH_FILES,
 ) -> dict[str, object]:
+    """Incrementally ingest one project.
+
+    Reading, hashing and chunk preparation happen outside the write lock.
+    Unchanged files cause no writes. Changed files are written in batched
+    transactions of ``batch_files`` so other tools get the lock between
+    batches. ``only_paths`` refreshes just those files and never deactivates
+    anything else.
+    """
     limits = limits or Limits()
     registration = register_project(
         database, path, agent=agent, external_id=external_id, scope=scope
@@ -575,7 +771,25 @@ def ingest_project(
     project = registration["project"]
     project_id = str(project["id"])
     root = Path(str(registration["identity"]["resolved_path"]))
-    files, coverage = enumerate_project_files(root, limits)
+    if only_paths is None:
+        files, coverage = enumerate_project_files(root, limits)
+    else:
+        coverage = _Coverage("explicit_paths", limits.coverage_gap_limit)
+        files = []
+        for raw in only_paths:
+            candidate = Path(raw)
+            if not candidate.is_absolute():
+                candidate = root / candidate
+            coverage.counts["enumerated"] += 1
+            if _has_ignored_dir_part(candidate, root):
+                coverage.note(candidate, root, "ignored_dir")
+                continue
+            reason = file_exclusion_reason(candidate, limits)
+            if reason is not None:
+                coverage.note(candidate, root, reason)
+                continue
+            files.append(candidate)
+            coverage.counts["eligible"] += 1
     now = utc_now()
     seen_paths: set[str] = set()
     counters = {
@@ -587,8 +801,10 @@ def ingest_project(
         "files_removed": 0,
         "files_renamed": 0,
         "chunks_added": 0,
+        "chunks_deduplicated": 0,
         "entities_observed": 0,
         "claims_observed": 0,
+        "write_batches": 0,
     }
     ingest_paths: set[str] = set()
     for candidate in files:
@@ -596,243 +812,110 @@ def ingest_project(
             ingest_paths.add(os.path.normcase(str(candidate.resolve())))
         except OSError:
             continue
-    changed = False
 
-    with database.transaction() as connection:
-        for path_obj in files:
+    # One read for every known source; no lock held.
+    with database.connect() as connection:
+        known = {
+            os.path.normcase(str(row["resolved_path"])): dict(row)
+            for row in connection.execute(
+                "SELECT id,resolved_path,size_bytes,mtime_ns,current_hash,active "
+                "FROM sources WHERE project_id=?",
+                (project_id,),
+            )
+        }
+
+    prepared: list[_PreparedFile] = []
+    for path_obj in files:
+        try:
             resolved_path = str(path_obj.resolve())
+            stat = path_obj.stat()
+            relative_path = path_obj.relative_to(root).as_posix()
+        except (OSError, ValueError):
             try:
+                resolved_path = str(path_obj.resolve())
+                relative_path = Path(resolved_path).relative_to(root).as_posix()
                 stat = path_obj.stat()
-                relative_path = path_obj.relative_to(root).as_posix()
             except (OSError, ValueError):
                 counters["files_skipped"] += 1
                 coverage.note(path_obj, root, "stat_error")
                 continue
-
-            source = connection.execute(
-                "SELECT * FROM sources WHERE project_id=? AND resolved_path=?",
-                (project_id, resolved_path),
-            ).fetchone()
-            if (
-                source is not None
-                and source["active"]
-                and source["size_bytes"] == stat.st_size
-                and source["mtime_ns"] == stat.st_mtime_ns
-            ):
-                seen_paths.add(os.path.normcase(resolved_path))
-                connection.execute("UPDATE sources SET last_seen=? WHERE id=?", (now, source["id"]))
-                counters["files_unchanged"] += 1
-                continue
-
-            try:
-                text = extract_text(path_obj)
-                if contains_sensitive_content(text):
-                    counters["files_skipped"] += 1
-                    coverage.note(path_obj, root, "sensitive_content")
-                    continue
-                content_hash = sha256_file(path_obj)
-            except (OSError, ValueError, KeyError, zipfile.BadZipFile, ElementTree.ParseError):
+        key = os.path.normcase(resolved_path)
+        source = known.get(key)
+        if (
+            source is not None
+            and source["active"]
+            and source["size_bytes"] == stat.st_size
+            and source["mtime_ns"] == stat.st_mtime_ns
+        ):
+            seen_paths.add(key)
+            counters["files_unchanged"] += 1
+            continue
+        try:
+            text, content_hash = _read_text_and_hash(path_obj)
+            if contains_sensitive_content(text):
                 counters["files_skipped"] += 1
-                coverage.note(path_obj, root, "unreadable")
+                coverage.note(path_obj, root, "sensitive_content")
                 continue
+        except (OSError, ValueError, KeyError, zipfile.BadZipFile, ElementTree.ParseError):
+            counters["files_skipped"] += 1
+            coverage.note(path_obj, root, "unreadable")
+            continue
+        seen_paths.add(key)
+        prepared.append(
+            _PreparedFile(path_obj, resolved_path, relative_path, stat.st_size, stat.st_mtime_ns,
+                          text, content_hash)
+        )
 
-            seen_paths.add(os.path.normcase(resolved_path))
-
-            if source is not None and source["current_hash"] == content_hash:
-                connection.execute(
-                    "UPDATE sources SET size_bytes=?,mtime_ns=?,active=1,last_seen=? WHERE id=?",
-                    (stat.st_size, stat.st_mtime_ns, now, source["id"]),
+    changed = False
+    size = max(1, int(batch_files))
+    for offset in range(0, len(prepared), size):
+        batch = prepared[offset : offset + size]
+        before = counters["files_added"] + counters["files_updated"] + counters["files_renamed"]
+        with database.transaction() as connection:
+            for item in batch:
+                _write_prepared(
+                    connection, item, project_id=project_id, now=now, limits=limits,
+                    ingest_paths=ingest_paths, counters=counters,
                 )
-                counters["files_unchanged"] += 1
-                continue
-
-            if source is None:
-                hash_matches = connection.execute(
-                    "SELECT * FROM sources WHERE project_id=? AND current_hash=?",
-                    (project_id, content_hash),
-                ).fetchall()
-                rename_source = None
-                if len(hash_matches) == 1:
-                    candidate = hash_matches[0]
-                    if os.path.normcase(str(candidate["resolved_path"])) not in ingest_paths:
-                        rename_source = candidate
-                if rename_source is not None:
-                    source_id = int(rename_source["id"])
-                    connection.execute(
-                        "UPDATE sources SET resolved_path=?,relative_path=?,media_type=?,"
-                        "size_bytes=?,mtime_ns=?,active=1,last_seen=? WHERE id=?",
-                        (
-                            resolved_path,
-                            relative_path,
-                            _media_type(path_obj),
-                            stat.st_size,
-                            stat.st_mtime_ns,
-                            now,
-                            source_id,
-                        ),
-                    )
-                    chunk_ids = [
-                        int(row[0])
-                        for row in connection.execute(
-                            "SELECT c.id FROM chunks c "
-                            "JOIN source_versions v ON v.id=c.source_version_id "
-                            "WHERE v.source_id=?",
-                            (source_id,),
-                        )
-                    ]
-                    for batch in batched(
-                        fts_rowids_for_chunks(connection, chunk_ids), sql_batch_size(connection, reserve=9)
-                    ):
-                        placeholders = ",".join("?" for _ in batch)
-                        connection.execute(
-                            f"UPDATE chunk_fts SET path=? WHERE rowid IN ({placeholders})",
-                            (relative_path, *batch),
-                        )
-                    counters["files_renamed"] += 1
-                    changed = True
-                    continue
-                cursor = connection.execute(
-                    "INSERT INTO sources(project_id,resolved_path,relative_path,media_type,current_hash,"
-                    "size_bytes,mtime_ns,active,first_seen,last_seen) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                    (
-                        project_id,
-                        resolved_path,
-                        relative_path,
-                        _media_type(path_obj),
-                        content_hash,
-                        stat.st_size,
-                        stat.st_mtime_ns,
-                        1,
-                        now,
-                        now,
-                    ),
-                )
-                source_id = int(cursor.lastrowid)
-                counters["files_added"] += 1
-            else:
-                source_id = int(source["id"])
-                old_chunk_ids = [
-                    row[0]
-                    for row in connection.execute(
-                        "SELECT c.id FROM chunks c JOIN source_versions v ON v.id=c.source_version_id "
-                        "WHERE v.source_id=?",
-                        (source_id,),
-                    )
-                ]
-                if old_chunk_ids:
-                    # Batched through the rowid map: one IN list per 500 ids, never
-                    # a full FTS scan and never past SQLite's variable limit.
-                    delete_fts_for_chunks(connection, [int(value) for value in old_chunk_ids])
-                connection.execute(
-                    "UPDATE sources SET relative_path=?,media_type=?,current_hash=?,size_bytes=?,"
-                    "mtime_ns=?,active=1,last_seen=? WHERE id=?",
-                    (
-                        relative_path,
-                        _media_type(path_obj),
-                        content_hash,
-                        stat.st_size,
-                        stat.st_mtime_ns,
-                        now,
-                        source_id,
-                    ),
-                )
-                counters["files_updated"] += 1
-
-            version = connection.execute(
-                "SELECT id FROM source_versions WHERE source_id=? AND content_hash=?",
-                (source_id, content_hash),
-            ).fetchone()
-            if version is None:
-                version_cursor = connection.execute(
-                    "INSERT INTO source_versions(source_id,content_hash,observed_at,text_length) "
-                    "VALUES(?,?,?,?)",
-                    (source_id, content_hash, now, len(text)),
-                )
-                version_id = int(version_cursor.lastrowid)
-                text_chunks = chunk_text(text, limits.chunk_characters)
-                for chunk in text_chunks:
-                    chunk_hash = sha256_text(chunk.text)
-                    chunk_cursor = connection.execute(
-                        "INSERT INTO chunks(source_version_id,ordinal,line_start,line_end,heading,text,chunk_hash) "
-                        "VALUES(?,?,?,?,?,?,?)",
-                        (
-                            version_id,
-                            chunk.ordinal,
-                            chunk.line_start,
-                            chunk.line_end,
-                            chunk.heading,
-                            "",
-                            chunk_hash,
-                        ),
-                    )
-                    chunk_id = int(chunk_cursor.lastrowid)
-                    insert_fts(
-                        connection,
-                        text=chunk.text,
-                        heading=chunk.heading or "",
-                        path=relative_path,
-                        project_id=project_id,
-                        chunk_id=chunk_id,
-                    )
-                    entity_count, claim_count = _extract_graph(
-                        connection,
-                        project_id=project_id,
-                        source_id=source_id,
-                        relative_path=relative_path,
-                        chunk_id=chunk_id,
-                        chunk=chunk,
-                    )
-                    counters["chunks_added"] += 1
-                    counters["entities_observed"] += entity_count
-                    counters["claims_observed"] += claim_count
-            else:
-                version_id = int(version["id"])
-                for row in connection.execute(
-                    "SELECT id,text,heading,line_start,line_end FROM chunks "
-                    "WHERE source_version_id=? ORDER BY ordinal",
-                    (version_id,),
-                ):
-                    plate = slice_source_lines(text, int(row["line_start"]), int(row["line_end"]))
-                    fts_body = plate or (row["text"] or "")
-                    insert_fts(
-                        connection,
-                        text=fts_body,
-                        heading=row["heading"] or "",
-                        path=relative_path,
-                        project_id=project_id,
-                        chunk_id=int(row["id"]),
-                    )
-            changed = True
-
-        active_sources = connection.execute(
-            "SELECT id,resolved_path FROM sources WHERE project_id=? AND active=1", (project_id,)
-        ).fetchall()
-        for source in active_sources:
-            try:
-                Path(source["resolved_path"]).resolve().relative_to(root)
-            except (OSError, ValueError):
-                # Another agent may use a different checkout of this canonical project.
-                # Ingesting one checkout must not deactivate the other checkout's evidence.
-                continue
-            if os.path.normcase(source["resolved_path"]) not in seen_paths:
-                connection.execute(
-                    "UPDATE sources SET active=0,last_seen=? WHERE id=?", (now, source["id"])
-                )
-                counters["files_removed"] += 1
+            after = counters["files_added"] + counters["files_updated"] + counters["files_renamed"]
+            if after != before:
                 changed = True
+                connection.execute("DELETE FROM cache WHERE project_id=?", (project_id,))
+        counters["write_batches"] += 1
 
+    with database.transaction() as connection:
+        if only_paths is None:
+            active_sources = connection.execute(
+                "SELECT id,resolved_path FROM sources WHERE project_id=? AND active=1", (project_id,)
+            ).fetchall()
+            for source in active_sources:
+                try:
+                    Path(source["resolved_path"]).resolve().relative_to(root)
+                except (OSError, ValueError):
+                    # Another agent may use a different checkout of this canonical project.
+                    continue
+                if os.path.normcase(source["resolved_path"]) not in seen_paths:
+                    connection.execute(
+                        "UPDATE sources SET active=0,last_seen=? WHERE id=?", (now, source["id"])
+                    )
+                    counters["files_removed"] += 1
+                    changed = True
         if changed:
             connection.execute(
                 "UPDATE projects SET corpus_version=corpus_version+1,updated_at=? WHERE id=?",
                 (now, project_id),
             )
             connection.execute("DELETE FROM cache WHERE project_id=?", (project_id,))
-
+        connection.execute(
+            "INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (f"last_ingest:{project_id}", now),
+        )
         project_row = dict(
             connection.execute(
                 "SELECT id,display_name,scope,corpus_version FROM projects WHERE id=?", (project_id,)
             ).fetchone()
         )
+    counters["write_batches"] += 1
 
     return {
         "project": project_row,
@@ -841,4 +924,107 @@ def ingest_project(
         "counters": counters,
         "coverage": coverage.as_dict(),
         "limits": json.loads(json.dumps(limits.__dict__)),
+    }
+
+
+def freshness_check(
+    database: Database,
+    path: str | Path,
+    *,
+    limits: Limits | None = None,
+    max_listed: int = 20,
+) -> dict[str, object]:
+    """Read-only: compare tracked files with the ledger by size and mtime.
+
+    Never takes the write lock and never reads file bodies.
+    """
+    from .identity import resolve_existing_project
+
+    limits = limits or Limits()
+    project = resolve_existing_project(database, path=path, project_id=None)
+    project_id = str(project["id"])
+    root = Path(path).expanduser().resolve()
+    files, _coverage = enumerate_project_files(root, limits)
+    with database.connect() as connection:
+        known = {
+            os.path.normcase(str(row["resolved_path"])): dict(row)
+            for row in connection.execute(
+                "SELECT resolved_path,size_bytes,mtime_ns,active FROM sources WHERE project_id=?",
+                (project_id,),
+            )
+        }
+    changed: list[str] = []
+    new: list[str] = []
+    seen: set[str] = set()
+    for path_obj in files:
+        try:
+            resolved = str(path_obj.resolve())
+            stat = path_obj.stat()
+        except OSError:
+            continue
+        key = os.path.normcase(resolved)
+        seen.add(key)
+        row = known.get(key)
+        if row is None or not row["active"]:
+            new.append(resolved)
+        elif row["size_bytes"] != stat.st_size or row["mtime_ns"] != stat.st_mtime_ns:
+            changed.append(resolved)
+    missing = 0
+    for key, row in known.items():
+        if not row["active"] or key in seen:
+            continue
+        try:
+            Path(row["resolved_path"]).resolve().relative_to(root)
+        except (OSError, ValueError):
+            continue
+        missing += 1
+    return {
+        "schema": "rso-freshness/v1",
+        "project_id": project_id,
+        "corpus_version": int(project.get("corpus_version") or 0),
+        "files_checked": len(files),
+        "changed": len(changed),
+        "new": len(new),
+        "missing": missing,
+        "fresh": not changed and not new and not missing,
+        "paths": (changed + new)[:max_listed],
+        "_all_paths": changed + new,
+    }
+
+
+USE_REFRESH_MAX_FILES = 25
+
+
+def use_workspace(
+    database: Database,
+    path: str | Path,
+    *,
+    agent: str,
+    limits: Limits | None = None,
+    max_refresh: int = USE_REFRESH_MAX_FILES,
+) -> dict[str, object]:
+    """Cheap entry for agents: never a whole-project ingest of a known project.
+
+    An unregistered folder gets its first ingest. A known project gets a
+    read-only freshness check; a few changed files are refreshed in one short
+    batch, and a larger drift is reported with the ingest command to run.
+    """
+    try:
+        fresh = freshness_check(database, path, limits=limits)
+    except ValueError:
+        result = ingest_project(database, path, agent=agent, limits=limits)
+        result["mode"] = "initial_ingest"
+        return result
+    all_paths = list(fresh.pop("_all_paths"))
+    if fresh["fresh"]:
+        return {"mode": "fresh", "freshness": fresh}
+    if all_paths and len(all_paths) <= max_refresh and not fresh["missing"]:
+        result = ingest_project(database, path, agent=agent, limits=limits, only_paths=all_paths)
+        result["mode"] = "targeted_refresh"
+        result["freshness"] = fresh
+        return result
+    return {
+        "mode": "stale",
+        "freshness": fresh,
+        "advice": f'Run: rso-context ingest --agent {agent} --path "{Path(path)}"',
     }

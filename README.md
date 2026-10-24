@@ -1,4 +1,4 @@
-# RSO Context Alpha 0.10.0
+# RSO Context Alpha 0.11.0
 
 [Download 0.10.0](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.10.0) ·
 [Quick-start](QUICKSTART.md) · [Installation](INSTALL.md) ·

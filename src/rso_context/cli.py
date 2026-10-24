@@ -25,7 +25,7 @@ from .db import SCHEMA_VERSION, Database, read_schema_version
 from .discovery import discover_and_register
 from .identity import project_explanation, register_project, resolve_existing_project
 from .admin import serve_admin
-from .ingest import ingest_project
+from .ingest import ingest_project, use_workspace
 from .mcp_setup import CLIENTS as MCP_SETUP_CLIENTS
 from .pointers import compact_pointers
 from .check import CHECK_SCHEMA, check_questions, explain_check, fit_check
@@ -203,7 +203,7 @@ def command_use(args: argparse.Namespace) -> int:
     """Agent one-shot: register, incremental ingest, resume. Humans should not run this by hand."""
     database = _database(args)
     path = str(Path(args.path or Path.cwd()).expanduser().resolve())
-    ingest = ingest_project(database, path, agent=args.agent, limits=_limits(args))
+    ingest = use_workspace(database, path, agent=args.agent, limits=_limits(args))
     packet = resume_context(
         database,
         path=path,
@@ -238,8 +238,9 @@ def command_query(args: argparse.Namespace) -> int:
         token_budget=args.token_budget,
         use_cache=not args.no_cache,
         run_budget=args.run_budget,
+        include_graph=getattr(args, "graph", False),
     )
-    if getattr(args, "compact", False):
+    if not getattr(args, "full", False):
         packet = compact_packet(packet, byte_budget=getattr(args, "byte_budget", Limits.compact_byte_budget))
     _print(packet)
     return 0
@@ -415,6 +416,26 @@ def command_cleanup_projects(args: argparse.Namespace) -> int:
             prune=args.only in (None, "prune"),
             include_protected=args.include_protected,
             project_ids=args.project_id or None,
+            batch_rows=args.batch_rows,
+            pause_seconds=args.pause_ms / 1000.0,
+            progress=lambda message: print(message, file=sys.stderr, flush=True),
+        )
+    )
+    return 0
+
+
+def command_prune_orphans(args: argparse.Namespace) -> int:
+    from .prune import plan_orphans, prune_orphans
+
+    database = _database(args)
+    if not args.apply:
+        _print(plan_orphans(database))
+        return 0
+    if not args.yes:
+        raise ValueError("--apply changes the ledger. Back it up first, review the dry run, then add --yes.")
+    _print(
+        prune_orphans(
+            database,
             batch_rows=args.batch_rows,
             pause_seconds=args.pause_ms / 1000.0,
             progress=lambda message: print(message, file=sys.stderr, flush=True),
@@ -782,13 +803,23 @@ def build_parser() -> argparse.ArgumentParser:
     query_parser.add_argument(
         "--compact",
         action="store_true",
-        help="Return rso-mcp-packet/v1 instead of the default rso-context-packet/v2",
+        help="Compact rso-mcp-packet/v1 output (the default; kept for old scripts)",
+    )
+    query_parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Return the full rso-context-packet/v2 instead of the compact packet",
+    )
+    query_parser.add_argument(
+        "--graph",
+        action="store_true",
+        help="Include matching graph nodes in the packet (off by default)",
     )
     query_parser.add_argument(
         "--byte-budget",
         type=int,
         default=Limits.compact_byte_budget,
-        help="Max ASCII JSON bytes for --compact (MCP default too)",
+        help="Max ASCII JSON bytes for the compact packet (MCP default too)",
     )
     query_parser.set_defaults(function=command_query)
 
@@ -897,6 +928,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     cleanup_parser.set_defaults(function=command_cleanup_projects)
 
+    prune_parser = subparsers.add_parser(
+        "prune-orphans",
+        help="Remove chunks of superseded file versions (dry run unless --apply --yes)",
+    )
+    prune_parser.add_argument("--apply", action="store_true", help="Change the ledger (needs --yes)")
+    prune_parser.add_argument("--yes", action="store_true", help="Confirm --apply after a backup")
+    prune_parser.add_argument("--batch-rows", type=int, default=2000)
+    prune_parser.add_argument("--pause-ms", type=int, default=50)
+    prune_parser.set_defaults(function=command_prune_orphans)
+
     compact_parser = subparsers.add_parser(
         "compact",
         help="Reclaim free space with VACUUM (dry run by default; locks the ledger while it runs)",
@@ -924,7 +965,7 @@ def build_parser() -> argparse.ArgumentParser:
     check_parser.add_argument("--path")
     check_parser.add_argument("--project-id")
     check_parser.add_argument("--agent", default="unknown")
-    check_parser.add_argument("--limit", type=int, default=Limits.query_limit)
+    check_parser.add_argument("--limit", type=int, default=Limits.check_limit)
     check_parser.add_argument(
         "--byte-budget",
         type=int,

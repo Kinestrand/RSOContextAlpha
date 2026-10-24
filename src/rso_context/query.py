@@ -35,29 +35,18 @@ def attach_empty_result(packet: dict[str, object]) -> None:
     }
 
 
-STOPWORDS = {
-    "the",
-    "a",
-    "an",
-    "of",
-    "for",
-    "to",
-    "and",
-    "or",
-    "is",
-    "it",
-    "in",
-    "on",
-    "at",
-    "be",
-    "as",
-    "by",
-    "what",
-    "how",
-    "does",
-    "did",
-    "can",
-}
+STOPWORDS = frozenset(
+    """
+    the a an of for to and or is it in on at be as by what how does did can
+    are was were been being has have had do done this that these those there their
+    them they then than with without from into onto over under about after before
+    when where which while who whom whose why will would should could may might must
+    shall not no yes all any each some such only also just very more most other our
+    ours your yours his her its use used using uses get got make made like need needs
+    want wants find show tell give know see look please let lets out off per via
+    thing things way ways
+    """.split()
+)
 
 
 def _tokens(value: str) -> list[str]:
@@ -75,16 +64,33 @@ def _escape_fts_token(token: str) -> str:
     return '"' + token.replace('"', '""') + '"'
 
 
+AND_MAX_TOKENS = 8
+PREFIX_MIN_CHARS = 4
+
+
+def _prefix_token(token: str) -> str:
+    # Prefix match on whole identifiers (porter stems are matched as prefixes too).
+    if len(token) >= PREFIX_MIN_CHARS and re.fullmatch(r"[a-z0-9_]+", token):
+        return _escape_fts_token(token) + "*"
+    return _escape_fts_token(token)
+
+
 def _fts_expressions(value: str, project_ids: list[str] | None = None) -> list[str]:
+    """AND of all terms first, then an OR fallback with prefix matching."""
     del project_ids  # project scope is SQL IN, never FTS (UUID hyphens break MATCH)
     tokens = _tokens(value)
     if not tokens:
         return []
     escaped = [_escape_fts_token(token) for token in tokens]
     expressions: list[str] = []
-    if 2 <= len(escaped) <= 6:
+    if 2 <= len(escaped) <= AND_MAX_TOKENS:
         expressions.append(" AND ".join(escaped))
-    expressions.append(" OR ".join(escaped))
+    if len(escaped) == 1:
+        expressions.append(escaped[0])
+        if _prefix_token(tokens[0]) != escaped[0]:
+            expressions.append(_prefix_token(tokens[0]))
+    else:
+        expressions.append(" OR ".join(_prefix_token(token) for token in tokens))
     deduped: list[str] = []
     for expression in expressions:
         if expression not in deduped:
@@ -335,7 +341,7 @@ def _query_one(
                END AS scope_priority,
                fts.text_rank AS text_rank
         FROM (
-            SELECT chunk_id AS fts_chunk_id, bm25(chunk_fts, 1.0, 1.0, 1.0, 0.0, 0.0) AS text_rank
+            SELECT chunk_id AS fts_chunk_id, bm25(chunk_fts, 1.0, 2.0, 1.5, 0.0, 0.0) AS text_rank
             FROM chunk_fts
             WHERE chunk_fts MATCH ?
             ORDER BY text_rank
@@ -730,37 +736,49 @@ def _retrieve_requirement(
     scoped_ids: list[str],
     strict_or: bool = False,
 ) -> list[dict[str, object]]:
-    """FTS rows for one requirement: all-terms first, then any-term fallback.
+    """FTS rows for one requirement: all-terms (AND) first, OR fallback to fill.
 
-    The any-term (OR) fallback used to accept a span that shared one common
-    word with a long request, which padded packets with unrelated cards. For
-    requests with 4+ terms the fallback now drops single-term spans whenever
-    spans with two or more terms exist, and ranks by how many terms they hold.
+    AND hits always rank first. When they do not fill ``limit``, the any-term
+    fallback adds the rest; for requests with 4+ terms it drops single-term
+    spans whenever spans with two or more terms exist, and ranks by how many
+    terms they hold, so one common word no longer pads the packet.
     """
+    if limit <= 0:
+        return []
     tokens = _tokens(requirement)
     expressions = _fts_expressions(requirement, scoped_ids)
     rows: list[dict[str, object]] = []
+    seen: set[int] = set()
+    # Fetch a little more than needed so per-file dedup still fills the limit.
+    want = max(1, limit) * 2
     for position, expression in enumerate(expressions):
+        if len(rows) >= want:
+            break
         is_or_fallback = " OR " in expression and (position > 0 or len(expressions) == 1)
         filtering = strict_or and is_or_fallback and len(tokens) >= OR_MIN_COVERAGE_TOKENS
-        rows = _query_one(
+        found = _query_one(
             connection,
             expression=expression,
             project_id=project_id,
             shared_ids=shared_ids,
-            limit=limit * 4 if filtering else limit,
+            limit=want * 2 if filtering else want,
             path=path,
         )
-        if filtering and rows:
-            scored = [(row, _token_coverage(row, tokens)) for row in rows]
-            # Prefer spans that share several terms; fall back to single-term
-            # spans only when nothing better exists, so recall is unchanged.
+        if filtering and found:
+            scored = [(row, _token_coverage(row, tokens)) for row in found]
             if any(item[1] >= OR_MIN_COVERAGE for item in scored):
                 scored = [item for item in scored if item[1] >= OR_MIN_COVERAGE]
             scored.sort(key=lambda item: (int(item[0]["scope_priority"]), -item[1]))
-            rows = [row for row, _ in scored[:limit]]
-        if rows:
-            break
+            found = [row for row, _ in scored]
+        for row in found:
+            chunk_id = int(row["chunk_id"])
+            if chunk_id in seen:
+                continue
+            seen.add(chunk_id)
+            row["match_pass"] = position
+            rows.append(row)
+            if len(rows) >= want:
+                break
     return rows
 
 
@@ -847,6 +865,168 @@ def cache_key_for(
     ).hexdigest()
 
 
+BOARD_DIR_NAMES = frozenset({".agent-coordination", "agent-coordination", ".board", "board", "inbox"})
+CLAIM_MIN_WORDS = 4
+CLAIM_MAX_CHARS = 400
+
+
+def _is_board_path(relative_path: str) -> bool:
+    parts = [part.casefold() for part in str(relative_path).replace("\\", "/").split("/")]
+    return any(part in BOARD_DIR_NAMES for part in parts[:-1])
+
+
+def _fill_stale_text(connection, rows: list[dict[str, object]]) -> None:
+    """A stale plate (file edited since ingest) used to come back with no text.
+
+    The FTS row still holds the text that was indexed; return it, labelled
+    stale, so the agent sees what matched and knows to re-read the file.
+    """
+    missing = [row for row in rows if row.get("stale") and not row.get("text")]
+    for row in missing:
+        found = connection.execute(
+            "SELECT f.text FROM chunk_fts_map m JOIN chunk_fts f ON f.rowid=m.fts_rowid "
+            "WHERE m.chunk_id=? LIMIT 1",
+            (int(row["chunk_id"]),),
+        ).fetchone()
+        if found is not None and found[0]:
+            row["text"] = str(found[0])
+            row["stale_text"] = "indexed_copy"
+
+
+def _clip_long_text(text: str, tokens: list[str], max_chars: int) -> tuple[str, bool]:
+    """Window a very long span (minified or one-line files) around the first match."""
+    if len(text) <= max_chars:
+        return text, False
+    folded = text.casefold()
+    first = min((folded.find(token) for token in tokens if token in folded), default=0)
+    start = max(0, first - max_chars // 4)
+    return text[start : start + max_chars], True
+
+
+def _merge_adjacent(hits: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Merge spans of one file whose line ranges touch or overlap."""
+    by_file: dict[tuple[str, str], list[dict[str, object]]] = {}
+    order: list[tuple[str, str]] = []
+    for hit in hits:
+        key = (str(hit["project_id"]), str(hit["relative_path"]))
+        if key not in by_file:
+            by_file[key] = []
+            order.append(key)
+        by_file[key].append(hit)
+    merged_all: dict[int, dict[str, object]] = {}
+    for key in order:
+        group = sorted(by_file[key], key=lambda item: int(item["line_start"]))
+        current: dict[str, object] | None = None
+        for hit in group:
+            if (
+                current is not None
+                and bool(current["stale"]) == bool(hit["stale"])
+                and int(hit["line_start"]) <= int(current["line_end"]) + 1
+            ):
+                if int(hit["line_end"]) > int(current["line_end"]):
+                    current["text"] = str(current["text"]).rstrip("\n") + "\n" + str(hit["text"])
+                    current["line_end"] = int(hit["line_end"])
+                current["requirements"] = sorted(set(current["requirements"]) | set(hit["requirements"]))
+                current["text_rank"] = min(float(current["text_rank"]), float(hit["text_rank"]))
+                current["match_pass"] = min(int(current.get("match_pass", 0)), int(hit.get("match_pass", 0)))
+                current.setdefault("merged_chunks", 1)
+                current["merged_chunks"] += 1
+                continue
+            current = dict(hit)
+            current["requirements"] = list(hit["requirements"])
+            merged_all[id(hit)] = current
+    # keep original priority order: position of the first member
+    result = []
+    for hit in hits:
+        if id(hit) in merged_all:
+            result.append(merged_all[id(hit)])
+    return result
+
+
+def _limit_per_file(hits: list[dict[str, object]], max_per_file: int) -> list[dict[str, object]]:
+    kept: list[dict[str, object]] = []
+    counts: dict[tuple[str, str], int] = {}
+    hashes: set[str] = set()
+    for hit in hits:
+        key = (str(hit["project_id"]), str(hit["relative_path"]))
+        # identical content in another file (copies) adds nothing
+        digest = str(hit.get("chunk_hash") or "")
+        if digest and digest in hashes and not hit.get("merged_chunks"):
+            continue
+        if counts.get(key, 0) >= max_per_file:
+            continue
+        counts[key] = counts.get(key, 0) + 1
+        if digest:
+            hashes.add(digest)
+        kept.append(hit)
+    return kept
+
+
+_CLAIM_WORD = re.compile(r"[A-Za-z]{2,}")
+
+
+def _claim_is_noise(text: str) -> bool:
+    words = _CLAIM_WORD.findall(text)
+    if len(words) < CLAIM_MIN_WORDS:
+        return True
+    letters = sum(len(word) for word in words)
+    # mostly code, markup or punctuation
+    return letters < 0.55 * len(text.replace(" ", ""))
+
+
+def _select_claims(
+    claims: list[dict[str, object]], tokens: list[str], cap: int
+) -> list[dict[str, object]]:
+    """Verified first, then claims sharing the most query terms; capped, noise dropped."""
+    order = {"verified": 0, "disputed": 1, "observed": 2, "proposed": 3}
+    scored = []
+    for claim in claims:
+        text = str(claim.get("display_text") or "")
+        if claim.get("trust_state") != "verified" and _claim_is_noise(text):
+            continue
+        folded = text.casefold()
+        overlap = sum(1 for token in tokens if token in folded)
+        scored.append((order.get(str(claim.get("trust_state")), 4), -overlap, len(text), text, claim))
+    scored.sort(key=lambda item: item[:4])
+    selected = []
+    for _state, _overlap, _length, text, claim in scored[: max(0, cap)]:
+        item = dict(claim)
+        if len(text) > CLAIM_MAX_CHARS:
+            item["display_text"] = text[:CLAIM_MAX_CHARS].rstrip() + "..."
+        selected.append(item)
+    return selected
+
+
+def _matching_ledger_claims(connection, project_ids, tokens, already, limit=4):
+    """Verified or proposed claims that mention at least two query terms.
+
+    Replaces the old unconditional boosts, which added the newest proposed
+    (board) and verified claims to every packet whatever the query.
+    """
+    if not tokens or limit <= 0:
+        return already
+    need = 2 if len(tokens) >= 2 else 1
+    have = {str(item["id"]) for item in already}
+    placeholders = ",".join("?" for _ in project_ids)
+    like = " OR ".join("c.normalized_text LIKE ?" for _ in tokens[:6])
+    rows = connection.execute(
+        f"SELECT c.id,c.project_id,c.display_text,c.trust_state,c.created_by FROM claims c "
+        f"WHERE c.project_id IN ({placeholders}) AND c.trust_state IN ('verified','proposed') "
+        f"AND ({like}) ORDER BY c.updated_at DESC LIMIT 200",
+        (*project_ids, *[f"%{token}%" for token in tokens[:6]]),
+    ).fetchall()
+    extra = []
+    for row in rows:
+        if str(row["id"]) in have:
+            continue
+        folded = str(row["display_text"]).casefold()
+        if sum(1 for token in tokens if token in folded) >= need:
+            extra.append(dict(row))
+        if len(extra) >= limit:
+            break
+    return already + extra
+
+
 def query_context(
     database: Database,
     query: str,
@@ -854,45 +1034,50 @@ def query_context(
     path: str | Path | None = None,
     project_id: str | None = None,
     agent: str = "unknown",
-    limit: int = 8,
-    token_budget: int = 4_000,
+    limit: int = Limits.query_limit,
+    token_budget: int = Limits.query_token_budget,
     use_cache: bool = True,
     run_budget: int | None = None,
     replay_run_info: dict[str, int | None] | None = None,
+    include_graph: bool = False,
+    refresh_stale: bool = True,
+    max_items_per_file: int = Limits.max_items_per_file,
 ) -> dict[str, object]:
     """Return a deterministic context packet for an already-registered project.
 
     Query does not auto-register a workspace. If ``path`` / cwd has no project,
     this raises ValueError (same as resume). Run ingest first.
 
+    Reads happen without a write lock. All ledger writes of one query (budget,
+    cache, run record) share a single short transaction at the end. When a
+    matched file was edited after ingest, that file alone is re-ingested and
+    the query runs once more, so edited files return current evidence.
+
     ``replay_run_info`` re-executes a recorded run without touching the ledger:
     the budget is neither read nor decremented, the cache is bypassed, and no
-    ``runs`` row is written. The supplied run info is placed in the packet so
-    ``packet_hash`` stays comparable with the recorded packet.
+    ``runs`` row is written.
     """
     database.initialize()
     started = time.perf_counter()
     project = _resolve_project(database, path=path, project_id=project_id, agent=agent)
     project_id_value = str(project["id"])
-    if replay_run_info is None:
-        with database.transaction() as budget_connection:
-            if run_budget is not None:
-                set_budget(budget_connection, project_id_value, agent, int(run_budget))
-            budget = consume(budget_connection, project_id_value, agent, n=1)
-        run_info = {"remaining": budget["remaining"], "initial": budget["initial"]}
-    else:
-        run_info = {
-            "remaining": replay_run_info.get("remaining"),
-            "initial": replay_run_info.get("initial"),
-        }
     requirements = split_requirements(query, limit=MAX_LEAVES)
     config = {
-        "algorithm": "fts5-bounded-requirements-v5-scoped-graph",
+        "algorithm": "fts5-bounded-requirements-v6-lean",
         "limit_per_requirement": limit,
         "max_requirements": MAX_LEAVES,
         "max_leaves": MAX_LEAVES,
         "token_budget": token_budget,
+        "graph": bool(include_graph),
+        "max_items_per_file": int(max_items_per_file),
     }
+    if replay_run_info is not None:
+        run_info_fixed: dict[str, int | None] | None = {
+            "remaining": replay_run_info.get("remaining"),
+            "initial": replay_run_info.get("initial"),
+        }
+    else:
+        run_info_fixed = None
 
     search_order: list[dict[str, object]] = []
     with database.connect() as connection:
@@ -903,10 +1088,6 @@ def query_context(
         ]
         shared_ids = [str(item["id"]) for item in search_order[1:]]
         version_vector = dict(scoped["corpus_versions"])
-        # The key names what decides the packet: normalized query text, project,
-        # normalized scope path, corpus versions and retrieval config. Budget
-        # counters used to be part of it, so a budgeted agent never hit twice;
-        # run info is now refreshed on the reused packet instead.
         cache_key = cache_key_for(
             query=query,
             project_id=project_id_value,
@@ -921,68 +1102,42 @@ def query_context(
             if cached is not None:
                 cached_body = json.loads(cached["packet_json"])
                 packet = cached_body.get("packet", {})
-                # Corpus versions change on ingest, but files can change between
-                # ingests. Each recorded plate must still be in the state it was
-                # in when the packet was built: a plate that matched must still
-                # match, and one that was already stale must still be stale.
-                # Requiring every plate to match made any packet with one stale
-                # candidate permanently uncacheable.
-                dependencies = cached_body.get("source_checks")
-                if dependencies is None or not all(
+                dependencies_list = cached_body.get("source_checks")
+                if dependencies_list is None or not all(
                     bool(item.get("matched")) ==
                     file_matches_hash(Path(item["resolved_path"]), item["source_hash"])
-                    for item in dependencies
+                    for item in dependencies_list
                 ):
                     cached = None
             if cached is not None:
-                with database.transaction() as write_connection:
-                    write_connection.execute(
-                        "UPDATE cache SET last_used_at=?,hit_count=hit_count+1 WHERE cache_key=?",
-                        (utc_now(), cache_key),
-                    )
-                if packet.get("run") != run_info:
-                    packet["run"] = run_info
-                    packet["packet_hash"] = hashlib.sha256(
-                        json_text(packet_body_for_hash(packet)).encode("utf-8")
-                    ).hexdigest()
-                apply_solvers(packet)
-                attach_empty_result(packet)
-                packet["cache"] = {"hit": True, "key": cache_key[:16]}
-                _record_run(
-                    database,
-                    project_id_value,
-                    query,
-                    project["corpus_version"],
-                    config,
-                    packet,
-                    started,
-                    remaining_budget=run_info["remaining"],
-                    agent=agent,
+                return _finish_query(
+                    database, packet, project_id_value=project_id_value, project=project,
+                    query=query, config=config, started=started, agent=agent,
+                    run_budget=run_budget, cache_key=cache_key, cache_hit=True,
                 )
-                return packet
 
         scoped_ids = [project_id_value, *shared_ids]
         plate_cache = PlateCache()
         dependencies: dict[tuple[str, str], bool] = {}
+
+        def retrieve(text: str) -> list[dict[str, object]]:
+            found = [
+                hydrate_chunk_row(row, plate_cache)
+                for row in _retrieve_requirement(
+                    connection,
+                    text,
+                    project_id=project_id_value,
+                    shared_ids=shared_ids,
+                    limit=limit,
+                    path=path,
+                    scoped_ids=scoped_ids,
+                    strict_or=True,
+                )
+            ]
+            return found
+
         leaves: list[dict[str, object]] = [
-            {
-                "text": requirement,
-                "rows": [
-                    hydrate_chunk_row(row, plate_cache)
-                    for row in _retrieve_requirement(
-                        connection,
-                        requirement,
-                        project_id=project_id_value,
-                        shared_ids=shared_ids,
-                        limit=limit,
-                        path=path,
-                        scoped_ids=scoped_ids,
-                        strict_or=True,
-                    )
-                ],
-                "extra_split": False,
-                "blocked_by_max": False,
-            }
+            {"text": requirement, "rows": retrieve(requirement), "extra_split": False, "blocked_by_max": False}
             for requirement in requirements
         ]
         index = 0
@@ -1001,28 +1156,10 @@ def query_context(
                 continue
             room = MAX_LEAVES - len(leaves) + 1
             taken = children[:room]
-            replacements = []
-            for child in taken:
-                replacements.append(
-                    {
-                        "text": child,
-                        "rows": [
-                            hydrate_chunk_row(row, plate_cache)
-                            for row in _retrieve_requirement(
-                                connection,
-                                child,
-                                project_id=project_id_value,
-                                shared_ids=shared_ids,
-                                limit=limit,
-                                path=path,
-                                scoped_ids=scoped_ids,
-                                strict_or=True,
-                            )
-                        ],
-                        "extra_split": True,
-                        "blocked_by_max": False,
-                    }
-                )
+            replacements = [
+                {"text": child, "rows": retrieve(child), "extra_split": True, "blocked_by_max": False}
+                for child in taken
+            ]
             if len(children) > len(taken):
                 replacements[-1]["blocked_by_max"] = True
             leaves[index : index + 1] = replacements
@@ -1036,11 +1173,42 @@ def query_context(
                 ):
                     leaf["blocked_by_max"] = True
 
+        # Edited-file freshness: re-ingest just the changed files, then retry once.
+        stale_paths = sorted(
+            {
+                str(row["resolved_path"])
+                for leaf in leaves
+                for row in leaf["rows"]
+                if row.get("stale") and Path(str(row["resolved_path"])).is_file()
+                and str(row["project_id"]) == project_id_value
+            }
+        )
+    if stale_paths and refresh_stale and replay_run_info is None and len(stale_paths) <= 25:
+        root = None
+        try:
+            from .ingest import ingest_project
+
+            alias_root = _project_root_for(database, project_id_value, stale_paths[0])
+            if alias_root is not None:
+                root = alias_root
+                ingest_project(database, root, agent=agent, only_paths=stale_paths)
+        except (sqlite3.OperationalError, OSError, ValueError, RuntimeError):
+            root = None
+        if root is not None:
+            return query_context(
+                database, query, path=path, project_id=project_id, agent=agent, limit=limit,
+                token_budget=token_budget, use_cache=use_cache, run_budget=run_budget,
+                replay_run_info=replay_run_info, include_graph=include_graph,
+                refresh_stale=False, max_items_per_file=max_items_per_file,
+            )
+
+    with database.connect() as connection:
         selected: dict[tuple[str, str], dict[str, object]] = {}
         coverage: list[dict[str, object]] = []
         disagreement_keys: set[tuple[str, str]] = set()
         for requirement_index, leaf in enumerate(leaves):
             rows = list(leaf["rows"])
+            _fill_stale_text(connection, rows)
             hit_keys: list[tuple[str, str]] = []
             for row in rows:
                 dependencies[(row["resolved_path"], row["source_hash"])] = not row["stale"]
@@ -1054,7 +1222,6 @@ def query_context(
             live_rows = [row for row in rows if not row["stale"]]
             row_texts = [str(row["text"]) for row in live_rows]
             row_paths = [str(row["relative_path"]) for row in live_rows]
-            # Lexical conflict is only a disagreement when the conflicting spans come from different paths.
             if live_rows and texts_disagree(row_texts, row_paths):
                 status = "disagreement"
                 for key in hit_keys:
@@ -1074,7 +1241,6 @@ def query_context(
                     ),
                 }
             )
-        requirements = [str(item["text"]) for item in coverage]
 
         ordered_hits = sorted(
             selected.values(),
@@ -1083,28 +1249,39 @@ def query_context(
                 0 if (item["relative_path"], item["chunk_hash"]) in disagreement_keys else 1,
                 min(item["requirements"]),
                 int(item["scope_priority"]),
+                int(item.get("match_pass", 0)),
+                1 if _is_board_path(str(item["relative_path"])) else 0,
                 float(item["text_rank"]),
                 str(item["relative_path"]),
                 int(item["line_start"]),
             ),
         )
+        disagreeing = [item for item in ordered_hits if (item["relative_path"], item["chunk_hash"]) in disagreement_keys]
+        others = [item for item in ordered_hits if (item["relative_path"], item["chunk_hash"]) not in disagreement_keys]
+        # Conflicting spans are never dropped by per-file dedup.
+        ordered_hits = disagreeing + _limit_per_file(_merge_adjacent(others), max(1, int(max_items_per_file)))
+        query_tokens = _tokens(query)
+        clip = Limits.long_chunk_characters
+        for item in ordered_hits:
+            text, clipped = _clip_long_text(str(item["text"]), query_tokens, clip)
+            if clipped:
+                item["text"] = text
+                item["clipped"] = True
         chunk_ids = [int(row["chunk_id"]) for row in ordered_hits if not row["stale"]]
-        claims = _proposed_claim_boost(
-            connection,
-            scoped_ids,
-            _verified_claim_boost(
-                connection,
-                scoped_ids,
-                _claims_for_chunks(connection, scoped_ids, chunk_ids),
-            ),
+        claims = _matching_ledger_claims(
+            connection, scoped_ids, query_tokens,
+            _claims_for_chunks(connection, scoped_ids, chunk_ids),
         )
-        graph_nodes = _graph_matches(connection, scoped_ids, _tokens(query))
         claims = _live_backed_items(
             connection, claims, kind="claim", cache=plate_cache, dependencies=dependencies
         )
-        graph_nodes = _live_backed_items(
-            connection, graph_nodes, kind="node", cache=plate_cache, dependencies=dependencies
-        )
+        claims = _select_claims(claims, query_tokens, Limits.max_claims)
+        graph_nodes: list[dict[str, object]] = []
+        if include_graph:
+            graph_nodes = _graph_matches(connection, scoped_ids, query_tokens)
+            graph_nodes = _live_backed_items(
+                connection, graph_nodes, kind="node", cache=plate_cache, dependencies=dependencies
+            )
         hits, claims, graph_nodes = _apply_whole_packet_budget(
             ordered_hits, claims, graph_nodes, token_budget
         )
@@ -1145,55 +1322,141 @@ def query_context(
         "partition": partition,
         "clarification_needed": clarification_needed,
         "config": config,
-        "run": run_info,
+        "run": {"remaining": None, "initial": None},
     }
-    packet_hash = hashlib.sha256(json_text(packet_body_for_hash(packet)).encode("utf-8")).hexdigest()
-    packet["packet_hash"] = packet_hash
-    # checks are attached after packet_hash so they are not hashed
-    apply_solvers(packet)
-    attach_empty_result(packet)
-    if replay_run_info is not None:
-        # Replay is read-only: no cache write, no runs row, no budget change.
+    # Budget counters ("run") are excluded from packet_hash.
+    packet["packet_hash"] = hashlib.sha256(json_text(packet_body_for_hash(packet)).encode("utf-8")).hexdigest()
+    if run_info_fixed is not None:
+        packet["run"] = run_info_fixed
+        apply_solvers(packet)
+        attach_empty_result(packet)
         return packet
-    # Freshness dependencies are cache metadata, not duplicated in output/run packets.
-    packet_json = json_text({
-        "packet": packet,
-        "source_checks": [
-            {"resolved_path": source_path, "source_hash": source_hash,
-             "matched": dependencies[(source_path, source_hash)]}
-            for source_path, source_hash in sorted(dependencies)
-        ],
-    })
+    source_checks = [
+        {"resolved_path": source_path, "source_hash": source_hash,
+         "matched": dependencies[(source_path, source_hash)]}
+        for source_path, source_hash in sorted(dependencies)
+    ]
+    return _finish_query(
+        database, packet, project_id_value=project_id_value, project=project,
+        query=query, config=config, started=started, agent=agent,
+        run_budget=run_budget, cache_key=cache_key, cache_hit=False,
+        source_checks=source_checks,
+    )
+
+
+def _project_root_for(database: Database, project_id: str, file_path: str) -> str | None:
+    """The registered alias folder of this project that contains file_path."""
+    with database.connect() as connection:
+        rows = connection.execute(
+            "SELECT resolved_path FROM project_aliases WHERE project_id=? AND resolved_path IS NOT NULL",
+            (project_id,),
+        ).fetchall()
+    target = Path(file_path)
+    best: str | None = None
+    for row in rows:
+        candidate = Path(str(row["resolved_path"]))
+        try:
+            target.relative_to(candidate)
+        except ValueError:
+            continue
+        if best is None or len(str(candidate)) > len(best):
+            best = str(candidate)
+    return best
+
+
+def _finish_query(
+    database: Database,
+    packet: dict[str, object],
+    *,
+    project_id_value: str,
+    project: dict[str, object],
+    query: str,
+    config: dict[str, object],
+    started: float,
+    agent: str,
+    run_budget: int | None,
+    cache_key: str,
+    cache_hit: bool,
+    source_checks: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    """The one write transaction of a query: budget, cache and run record."""
     now = utc_now()
     with database.transaction() as connection:
-        connection.execute(
-            "INSERT INTO cache(cache_key,project_id,corpus_version,packet_json,packet_hash,"
-            "created_at,last_used_at,hit_count) VALUES(?,?,?,?,?,?,?,0) "
-            "ON CONFLICT(cache_key) DO UPDATE SET packet_json=excluded.packet_json,"
-            "packet_hash=excluded.packet_hash,last_used_at=excluded.last_used_at",
-            (
-                cache_key,
-                project_id_value,
-                int(project["corpus_version"]),
-                packet_json,
-                packet_hash,
-                now,
-                now,
-            ),
+        if run_budget is not None:
+            set_budget(connection, project_id_value, agent, int(run_budget))
+        budget = consume(connection, project_id_value, agent, n=1)
+        packet["run"] = {"remaining": budget["remaining"], "initial": budget["initial"]}
+        packet.pop("cache", None)
+        packet.pop("checks", None)
+        packet.pop("empty_result", None)
+        if cache_hit:
+            connection.execute(
+                "UPDATE cache SET last_used_at=?,hit_count=hit_count+1 WHERE cache_key=?",
+                (now, cache_key),
+            )
+        else:
+            connection.execute(
+                "INSERT INTO cache(cache_key,project_id,corpus_version,packet_json,packet_hash,"
+                "created_at,last_used_at,hit_count) VALUES(?,?,?,?,?,?,?,0) "
+                "ON CONFLICT(cache_key) DO UPDATE SET packet_json=excluded.packet_json,"
+                "packet_hash=excluded.packet_hash,last_used_at=excluded.last_used_at",
+                (
+                    cache_key,
+                    project_id_value,
+                    int(project["corpus_version"]),
+                    json_text({"packet": packet, "source_checks": source_checks or []}),
+                    packet["packet_hash"],
+                    now,
+                    now,
+                ),
+            )
+        apply_solvers(packet)
+        attach_empty_result(packet)
+        packet["cache"] = {"hit": cache_hit, "key": cache_key[:16]}
+        _insert_run(
+            connection,
+            project_id_value,
+            query,
+            project["corpus_version"],
+            config,
+            packet,
+            started,
+            remaining_budget=budget["remaining"],
+            agent=agent,
         )
-    packet["cache"] = {"hit": False, "key": cache_key[:16]}
-    _record_run(
-        database,
-        project_id_value,
-        query,
-        project["corpus_version"],
-        config,
-        packet,
-        started,
-        remaining_budget=run_info["remaining"],
-        agent=agent,
-    )
     return packet
+
+
+def _insert_run(
+    connection,
+    project_id: str,
+    query: str,
+    corpus_version: int,
+    config: dict[str, object],
+    packet: dict[str, object],
+    started: float,
+    remaining_budget: int | None = None,
+    agent: str | None = None,
+) -> None:
+    packet_json = json_text(packet)
+    packet_hash = str(packet.get("packet_hash") or hashlib.sha256(packet_json.encode()).hexdigest())
+    connection.execute(
+        "INSERT INTO runs(id,project_id,query_text,corpus_version,config_json,packet_json,"
+        "packet_hash,elapsed_ms,created_at,remaining_budget,agent) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            str(uuid.uuid4()),
+            project_id,
+            query,
+            int(corpus_version),
+            json_text(config),
+            packet_json,
+            packet_hash,
+            (time.perf_counter() - started) * 1000,
+            utc_now(),
+            remaining_budget,
+            normalize_agent(agent),
+        ),
+    )
 
 
 def _record_run(
@@ -1207,23 +1470,6 @@ def _record_run(
     remaining_budget: int | None = None,
     agent: str | None = None,
 ) -> None:
-    packet_json = json_text(packet)
-    packet_hash = str(packet.get("packet_hash") or hashlib.sha256(packet_json.encode()).hexdigest())
     with database.transaction() as connection:
-        connection.execute(
-            "INSERT INTO runs(id,project_id,query_text,corpus_version,config_json,packet_json,"
-            "packet_hash,elapsed_ms,created_at,remaining_budget,agent) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                str(uuid.uuid4()),
-                project_id,
-                query,
-                int(corpus_version),
-                json_text(config),
-                packet_json,
-                packet_hash,
-                (time.perf_counter() - started) * 1000,
-                utc_now(),
-                remaining_budget,
-                normalize_agent(agent),
-            ),
-        )
+        _insert_run(connection, project_id, query, corpus_version, config, packet, started,
+                    remaining_budget=remaining_budget, agent=agent)

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 class SchemaVersionError(ValueError):
@@ -31,7 +31,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(
     path,
     project_id,
     chunk_id UNINDEXED,
-    tokenize='unicode61 remove_diacritics 2'
+    tokenize='porter unicode61 remove_diacritics 2',
+    prefix='4'
 );
 """
 
@@ -379,6 +380,39 @@ def _migrate_v7(connection: sqlite3.Connection) -> None:
     connection.execute("ANALYZE")
 
 
+def _chunk_fts_is_v8(connection: sqlite3.Connection) -> bool:
+    sql = _chunk_fts_sql(connection) or ""
+    return "porter" in sql and "prefix" in sql
+
+
+def _migrate_v8(connection: sqlite3.Connection) -> dict[str, int]:
+    """Porter stemming and a prefix index on chunk_fts.
+
+    Indexed text is copied from the existing FTS table (chunk bodies are
+    pointers, so ``chunks.text`` is usually empty). Rows whose chunk no longer
+    exists are dropped on the way. The rowid map is rebuilt.
+    """
+    if _chunk_fts_is_v8(connection):
+        return {"copied": 0, "skipped": 1}
+    connection.execute("DROP TABLE IF EXISTS chunk_fts_v8")
+    connection.execute(FTS_SQL.replace("IF NOT EXISTS chunk_fts", "chunk_fts_v8"))
+    connection.execute(
+        "INSERT INTO chunk_fts_v8(text, heading, path, project_id, chunk_id) "
+        "SELECT f.text, f.heading, f.path, f.project_id, f.chunk_id FROM chunk_fts f "
+        "WHERE EXISTS (SELECT 1 FROM chunks c WHERE c.id = f.chunk_id)"
+    )
+    copied = int(connection.execute("SELECT COUNT(*) FROM chunk_fts_v8").fetchone()[0])
+    connection.execute("DROP TABLE chunk_fts")
+    connection.execute("ALTER TABLE chunk_fts_v8 RENAME TO chunk_fts")
+    connection.execute("DELETE FROM chunk_fts_map")
+    connection.execute(
+        "INSERT OR IGNORE INTO chunk_fts_map(chunk_id, fts_rowid) "
+        "SELECT chunk_id, rowid FROM chunk_fts WHERE chunk_id IS NOT NULL"
+    )
+    connection.execute("INSERT INTO chunk_fts(chunk_fts) VALUES('optimize')")
+    return {"copied": copied, "skipped": 0}
+
+
 def fts_rowids_for_chunks(connection: sqlite3.Connection, chunk_ids: list[int]) -> list[int]:
     """FTS rowids for chunk ids, without scanning the FTS table."""
     rowids: list[int] = []
@@ -457,6 +491,8 @@ def _migrate(connection: sqlite3.Connection, from_version: int) -> None:
         _migrate_v6(connection)
     if from_version < 7:
         _migrate_v7(connection)
+    if from_version < 8:
+        _migrate_v8(connection)
     _write_schema_version(connection, SCHEMA_VERSION)
 
 
@@ -512,7 +548,14 @@ class Database:
                     f"Database schema_version {db_version} is newer than code version {SCHEMA_VERSION}"
                 )
             if db_version < SCHEMA_VERSION:
-                _migrate(connection, db_version)
+                # One migrator at a time: take the write lock, then re-check.
+                if connection.in_transaction:
+                    connection.commit()
+                connection.execute("BEGIN IMMEDIATE")
+                current = read_schema_version(connection) or db_version
+                if current < SCHEMA_VERSION:
+                    _migrate(connection, current)
+                connection.commit()
             ensure_reference_indexes(connection)
             connection.execute(
                 "INSERT OR IGNORE INTO meta(key, value) VALUES('created_by', 'rso-context-alpha')"

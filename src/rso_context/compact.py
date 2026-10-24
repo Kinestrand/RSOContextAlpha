@@ -63,21 +63,29 @@ def _make_ref(hit: dict[str, object], line_start: int, line_end: int) -> dict[st
     }
 
 
+_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
 def _excerpt(hit: dict[str, object], text: str, line_start: int, line_end: int) -> dict[str, object]:
-    return {
-        "project_id": hit.get("project_id"),
+    """One evidence item. Hashes and project id live once, in ``expand``."""
+    item: dict[str, object] = {
         "relative_path": hit.get("relative_path"),
         "line_start": int(line_start),
         "line_end": int(line_end),
         "text": text,
-        "chunk_hash": hit.get("chunk_hash"),
-        "source_hash": hit.get("source_hash"),
-        "stale": bool(hit.get("stale")),
-        "span_kind": hit.get("span_kind"),
-        "media_type": hit.get("media_type"),
         "requirements": list(hit.get("requirements") or []),
         "expand": _make_ref(hit, line_start, line_end),
     }
+    if hit.get("stale"):
+        item["stale"] = True
+    else:
+        item["stale"] = False
+    if hit.get("media_type") == _DOCX:
+        item["span_kind"] = hit.get("span_kind")
+        item["media_type"] = hit.get("media_type")
+    if hit.get("clipped"):
+        item["clipped"] = True
+    return item
 
 
 def matching_line_groups(text: str, line_start: int, query: str) -> list[tuple[int, int, str]]:

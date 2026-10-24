@@ -74,7 +74,7 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(result["coverage"]["counts"]["eligible"], 1)
 
     def test_unreadable_extract_is_a_gap(self):
-        with patch("rso_context.ingest.extract_text", side_effect=OSError("locked")):
+        with patch("rso_context.ingest._read_text_and_hash", side_effect=OSError("locked")):
             result = ingest_project(self.database, self.root, agent="cov")
         coverage = result["coverage"]
         self.assertEqual(result["counters"]["files_skipped"], 1)

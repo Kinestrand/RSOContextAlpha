@@ -1,4 +1,4 @@
-# Install RSO Context Alpha 0.10.0
+# Install RSO Context Alpha 0.11.0
 
 For step-by-step Windows download instructions and a first-use example, start
 with [QUICKSTART.md](QUICKSTART.md).
@@ -56,7 +56,7 @@ $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
 rso-context --version
 ```
 
-For later sessions, add `%USERPROFILE%\.local\bin` to the user PATH or use the full command path. An installing agent can add the entry when installation is authorized, preserving existing PATH entries. The version check must report 0.10.0.
+For later sessions, add `%USERPROFILE%\.local\bin` to the user PATH or use the full command path. An installing agent can add the entry when installation is authorized, preserving existing PATH entries. The version check must report 0.11.0.
 
 ## Linux
 

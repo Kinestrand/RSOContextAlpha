@@ -2,7 +2,7 @@
 
 RSO means Recursive Semantic Octree. [RESEARCH-ORIGIN.md](RESEARCH-ORIGIN.md) explains the research proposal and the smaller evidence-ledger implementation supplied here.
 
-This manual describes the 0.10.0 CLI. Commands return JSON unless they're help/version output or the local browser viewer. Replace `<current-agent-name>` with the actual client identity and `<workspace>` with an absolute, bounded project directory. Installation is covered in [INSTALL.md](INSTALL.md).
+This manual describes the 0.11.0 CLI. Commands return JSON unless they're help/version output or the local browser viewer. Replace `<current-agent-name>` with the actual client identity and `<workspace>` with an absolute, bounded project directory. Installation is covered in [INSTALL.md](INSTALL.md).
 
 ## Contents
 
@@ -223,7 +223,7 @@ After a large cleanup, `rso-context compact` reports how much space VACUUM would
 
 ## 9. Troubleshooting
 
-MCP access does not populate the ledger. Use `rso_use` separately for each project before `rso_query`. Refresh ingestion after edits. Updating an index does not update or synchronize source files between project copies. See [VERIFICATION.md](VERIFICATION.md) for tested host behavior.
+MCP access does not populate the ledger. Ingest each project once (with `rso_use` or `rso-context ingest`) before `rso_query`; later sessions can query directly. `rso_use` on a known project is a cheap freshness check that refreshes up to 25 changed files and otherwise tells you to run `ingest`. A query that hits a file edited since ingest re-ingests that file and retries. Updating an index does not update or synchronize source files between project copies. See [VERIFICATION.md](VERIFICATION.md) for tested host behavior.
 
 | Symptom | Action |
 | --- | --- |

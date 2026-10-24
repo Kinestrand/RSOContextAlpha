@@ -59,7 +59,8 @@ class ReleaseFixtureTests(unittest.TestCase):
         ingest_project(self.database, self.root, agent="gate")
         packet = query_context(self.database, "widgets", path=self.root, agent="a")
         (self.root / "policy.md").write_text("Decision: widgets must stay pink.\n", encoding="utf-8")
-        stale = query_context(self.database, "widgets", path=self.root, agent="b", use_cache=False)
+        stale = query_context(self.database, "widgets", path=self.root, agent="b", use_cache=False,
+                              refresh_stale=False)
         self.assertTrue(all(item.get("stale") for item in stale["evidence"]))
         self.assertNotIn("pink", " ".join(item.get("text") or "" for item in stale["evidence"]))
         self.assertEqual(stale["empty_result"]["kind"], "only_stale_spans")

@@ -37,6 +37,7 @@ src/rso_context/mcp_runtime.py
 src/rso_context/mcp_server.py
 src/rso_context/mcp_setup.py
 src/rso_context/pointers.py
+src/rso_context/prune.py
 src/rso_context/query.py
 src/rso_context/replay.py
 src/rso_context/resume.py
@@ -63,3 +64,4 @@ tests/test_replay.py
 tests/__init__.py
 tests/test_rso_context.py
 tests/test_v010.py
+tests/test_v011.py
