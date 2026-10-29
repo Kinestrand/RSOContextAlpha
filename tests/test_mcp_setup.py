@@ -243,6 +243,20 @@ class McpSetupTests(unittest.TestCase):
         self.assertNotIn("rso-context", config.read_text(encoding="utf-8"))
 
 
+    def test_qwen_client_writes_and_removes_mcp_servers_entry(self):
+        config = Path(self.temp.name) / "qwen" / "settings.json"
+        config.parent.mkdir()
+        config.write_text(json.dumps({"theme": "dark", "mcpServers": {"other": {"command": "x"}}}), encoding="utf-8")
+        setup_client("qwen", config=config)
+        data = json.loads(config.read_text(encoding="utf-8"))
+        self.assertEqual(data["theme"], "dark")
+        self.assertIn("rso-context", data["mcpServers"])
+        self.assertNotIn("--root", data["mcpServers"]["rso-context"]["args"])
+        remove_client("qwen", config=config)
+        after = json.loads(config.read_text(encoding="utf-8"))
+        self.assertNotIn("rso-context", after["mcpServers"])
+        self.assertIn("other", after["mcpServers"])
+
     def test_google_clients_preserve_explicit_json_config(self):
         config = Path(self.temp.name) / "gemini" / "settings.json"
         config.parent.mkdir()
