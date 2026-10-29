@@ -654,7 +654,7 @@ class SliceBTests(unittest.TestCase):
                 ).fetchone()[0]
             )
             self.assertEqual(version, SCHEMA_VERSION)
-            self.assertEqual(version, 6)
+            self.assertEqual(version, SCHEMA_VERSION)
             table = connection.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='run_budgets'"
             ).fetchone()
@@ -961,7 +961,7 @@ class PointerIndexTests(unittest.TestCase):
                     ).fetchone()[0]
                 )
                 texts = [row[0] for row in connection.execute("SELECT text FROM chunks")]
-            self.assertEqual(version, 6)
+            self.assertEqual(version, SCHEMA_VERSION)
             self.assertTrue(any(text == "migrate-keep-body-okapi-12zz" for text in texts), texts)
 
     def test_schema_v5_to_v6_drops_default_run_budgets(self) -> None:

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import sqlite3
 
 from . import __version__
 from .db import Database, SchemaVersionError
-from .ingest import ingest_project
+from .ingest import use_workspace
 from .mcp_contract import (
     ACCESS_OPEN,
     ACCESS_STRICT,
@@ -20,6 +21,7 @@ from .mcp_contract import (
     resolve_workspace_path,
     restrict_packet_to_roots,
 )
+from .audit import record_validation, resolve_claim_id
 from .check import CHECK_SCHEMA, check_questions, explain_check, fit_check
 from .compact import compact_packet, expand_reference
 from .config import Limits
@@ -30,7 +32,8 @@ from .resume import resume_context
 INSTRUCTIONS = (
     "Local RSO Context evidence ledger over bounded folders. "
     "Pass the absolute path of the project folder you are working in as path. "
-    "Call rso_use on a folder once before rso_query, rso_check, or rso_resume. "
+    "rso_query works on any ingested folder; rso_use is optional and only needed "
+    "for a folder that has never been ingested or to refresh changed files. "
     "path must be a bounded project folder, never a user profile, Documents, "
     "Downloads, a drive root, or a system folder; under --strict-roots it must "
     "also sit under a launch --root. "
@@ -39,7 +42,8 @@ INSTRUCTIONS = (
     "rso_use and rso_query write to the ledger. "
     "rso_query returns a compact packet; rso_expand recovers omitted evidence. "
     "rso_check answers typed questions with evidence statuses, not probabilities; it also writes. "
-    "Do not treat symbolic checks as named verification."
+    "Do not treat symbolic checks as named verification. "
+    "rso_validate records a named validation (validator + result) for one claim; it writes."
 )
 
 
@@ -216,12 +220,12 @@ def build_server(*, db_path: str, roots: list[str], strict_roots: bool = False):
 
     @mcp.tool()
     def rso_use(path: str, agent: str) -> dict:
-        """Ingest a bounded workspace and return a resume packet. This writes."""
+        """First-time ingest, or a cheap freshness check plus small refresh, then a resume packet."""
 
         def run():
             resolved = workspace(path)
             attributed = require_agent(agent)
-            ingest = ingest_project(database, resolved, agent=attributed)
+            ingest = use_workspace(database, resolved, agent=attributed)
             packet = resume_context(database, path=resolved, agent=attributed)
             return {"schema": "rso-context-use/v1", "ingest": ingest, "resume": packet}
 
@@ -232,8 +236,8 @@ def build_server(*, db_path: str, roots: list[str], strict_roots: bool = False):
         query: str,
         path: str,
         agent: str,
-        limit: int = 8,
-        token_budget: int = 4000,
+        limit: int = Limits.query_limit,
+        token_budget: int = Limits.query_token_budget,
         compact: bool = True,
         byte_budget: int = Limits.compact_byte_budget,
     ):
@@ -311,7 +315,51 @@ def build_server(*, db_path: str, roots: list[str], strict_roots: bool = False):
 
         return _invoke(error_type, run)
 
+    @mcp.tool()
+    def rso_validate(
+        claim: str,
+        validator: str,
+        result: str,
+        agent: str,
+        path: str = "",
+        details: dict | None = None,
+        evidence: str = "",
+    ) -> dict:
+        """Record a named validation for a claim. This writes."""
+
+        def run():
+            attributed = require_agent(agent)
+            resolved = workspace(path) if str(path or "").strip() else None
+            looks_like_id = bool(re.fullmatch(r"[0-9a-fA-F-]{8,}", str(claim or "").strip()))
+            if not looks_like_id and resolved is None:
+                raise ValueError("path is required to look a claim up by its text")
+            claim_id = resolve_claim_id(
+                database,
+                str(claim) if looks_like_id else None,
+                text=None if looks_like_id else str(claim),
+                path=resolved,
+            )
+            visible_ids = project_ids_visible_to_roots(database, visible())
+            with database.connect() as connection:
+                row = connection.execute("SELECT project_id FROM claims WHERE id=?", (claim_id,)).fetchone()
+            if row is None or str(row["project_id"]) not in visible_ids:
+                raise ValueError("Claim is not in a project visible to this server")
+            payload = dict(details or {})
+            if str(evidence or "").strip():
+                payload.setdefault("evidence", str(evidence).strip())
+            return record_validation(
+                database,
+                claim_id,
+                validator=validator,
+                result=result,
+                details=payload,
+                agent=attributed,
+            )
+
+        return _invoke(error_type, run)
+
     advertised = {
+        rso_validate.__name__,
         rso_use.__name__,
         rso_query.__name__,
         rso_check.__name__,

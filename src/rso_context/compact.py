@@ -63,21 +63,29 @@ def _make_ref(hit: dict[str, object], line_start: int, line_end: int) -> dict[st
     }
 
 
+_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
 def _excerpt(hit: dict[str, object], text: str, line_start: int, line_end: int) -> dict[str, object]:
-    return {
-        "project_id": hit.get("project_id"),
+    """One evidence item. Hashes and project id live once, in ``expand``."""
+    item: dict[str, object] = {
         "relative_path": hit.get("relative_path"),
         "line_start": int(line_start),
         "line_end": int(line_end),
         "text": text,
-        "chunk_hash": hit.get("chunk_hash"),
-        "source_hash": hit.get("source_hash"),
-        "stale": bool(hit.get("stale")),
-        "span_kind": hit.get("span_kind"),
-        "media_type": hit.get("media_type"),
         "requirements": list(hit.get("requirements") or []),
         "expand": _make_ref(hit, line_start, line_end),
     }
+    if hit.get("stale"):
+        item["stale"] = True
+    else:
+        item["stale"] = False
+    if hit.get("media_type") == _DOCX:
+        item["span_kind"] = hit.get("span_kind")
+        item["media_type"] = hit.get("media_type")
+    if hit.get("clipped"):
+        item["clipped"] = True
+    return item
 
 
 def matching_line_groups(text: str, line_start: int, query: str) -> list[tuple[int, int, str]]:
@@ -125,6 +133,15 @@ def excerpts_for_hit(hit: dict[str, object], query: str) -> list[dict[str, objec
     return [_excerpt(hit, chunk, start, end) for start, end, chunk in groups]
 
 
+CLAIM_LIST_CAP = 3
+CLAIM_TEXT_CAP = 200
+
+
+def _short(value: object, cap: int) -> object:
+    text = str(value or "")
+    return text if len(text) <= cap else text[: cap - 3].rstrip() + "..."
+
+
 def _skeleton(packet: dict[str, object], byte_budget: int) -> dict[str, object]:
     requirements = []
     for item in packet.get("requirements") or []:
@@ -137,12 +154,12 @@ def _skeleton(packet: dict[str, object], byte_budget: int) -> dict[str, object]:
             }
         )
     claims = []
-    for claim in packet.get("claims") or []:
+    for claim in (packet.get("claims") or [])[:CLAIM_LIST_CAP]:
         claims.append(
             {
                 "id": claim.get("id"),
                 "trust_state": claim.get("trust_state"),
-                "display_text": claim.get("display_text"),
+                "display_text": _short(claim.get("display_text"), CLAIM_TEXT_CAP),
             }
         )
     return {
@@ -324,6 +341,61 @@ def _conflict_witness(conflict: list[dict[str, object]]) -> list[dict[str, objec
     return best
 
 
+OMITTED_LIST_CAP = 3
+MIN_TRIM_ROOM = 300
+
+
+def _slim_ref(ref: object) -> object:
+    """Omitted refs drop chunk_hash; rso_expand does not need it."""
+    if isinstance(ref, dict):
+        return {key: value for key, value in ref.items() if key != "chunk_hash"}
+    return ref
+
+
+def _trim_to_fit(
+    compact: dict[str, object],
+    kept: list[dict[str, object]],
+    item: dict[str, object],
+    budget: int,
+) -> dict[str, object] | None:
+    """Keep the leading whole lines of an excerpt that fit; mark it truncated.
+
+    ``expand`` keeps the full original range, so the rest is one call away.
+    Used instead of dropping the span, which left 4 KB packets with metadata
+    and no evidence.
+    """
+    if item.get("stale") or not item.get("text"):
+        return None
+    probe = dict(item, text="", truncated=True)
+    compact["evidence"] = kept + [probe]
+    room = budget - serialized_bytes(compact)
+    compact["evidence"] = kept
+    if room < MIN_TRIM_ROOM:
+        return None
+    lines = str(item["text"]).split("\n")
+    chosen: list[str] = []
+    used = 0
+    for line in lines:
+        cost = len(json.dumps(line, ensure_ascii=True)) - 1
+        if used + cost > room:
+            break
+        chosen.append(line)
+        used += cost
+    if not chosen:
+        # One very long line: cut it at the character level.
+        text = lines[0][: max(0, room - 16)]
+        while text and len(json.dumps(text, ensure_ascii=True)) > room:
+            text = text[: int(len(text) * 0.9)]
+        if not text:
+            return None
+        chosen = [text]
+    trimmed = dict(item)
+    trimmed["text"] = "\n".join(chosen)
+    trimmed["line_end"] = int(item["line_start"]) + len(chosen) - 1
+    trimmed["truncated"] = True
+    return trimmed
+
+
 def compact_packet(
     packet: dict[str, object],
     *,
@@ -361,21 +433,126 @@ def compact_packet(
                 compact["omitted_count"] = len(conflict)
                 compact["status"] = "insufficient_budget"
                 compact["message"] = "Conflicting evidence cannot fit; use omitted expand refs."
-                return _finalize(compact, budget, protect_conflict=True)
+                return _explain_degraded(
+                    _finalize(compact, budget, protect_conflict=True), candidates, budget, packet
+                )
             conflict = witness
 
+    if ordinary and not compact["evidence"]:
+        # Evidence outranks claim text and requirement echoes in a small packet.
+        if serialized_bytes(compact) > budget * 0.4:
+            _slim_metadata(compact)
     kept = list(compact["evidence"])
     omitted: list[dict[str, object]] = list(compact.get("omitted") or [])
+    # Room kept free for the omitted refs and size stamps added after this loop.
+    reserve = sum(
+        serialized_bytes({"reason": "byte_budget", "expand": _slim_ref(item.get("expand"))}) + 1
+        for item in ordinary[1 : 1 + OMITTED_LIST_CAP]
+    ) + 64
     for item in ordinary:
         compact["evidence"] = kept + [item]
-        if _fits(compact, budget):
+        if _fits(compact, budget - reserve):
             kept.append(item)
+            continue
+        trimmed = _trim_to_fit(compact, kept, item, budget - reserve)
+        if trimmed is not None:
+            kept.append(trimmed)
+            omitted.append({"reason": "truncated", "expand": _slim_ref(item.get("expand"))})
         else:
-            omitted.append({"reason": "byte_budget", "expand": item.get("expand")})
+            omitted.append({"reason": "byte_budget", "expand": _slim_ref(item.get("expand"))})
     compact["evidence"] = kept
-    compact["omitted"] = omitted
+    compact["omitted"] = omitted[:OMITTED_LIST_CAP]
     compact["omitted_count"] = len(omitted)
-    return _finalize(compact, budget, protect_conflict=bool(conflict and kept[: len(conflict)] == conflict))
+    # Now that the omitted list is known, shrink the last span rather than drop it.
+    floor = len(conflict) if conflict else 0
+    while len(kept) > floor:
+        _stamp_size(compact)
+        if _fits(compact, budget - 8):
+            break
+        last = kept.pop()
+        compact["evidence"] = kept
+        shrunk = _trim_to_fit(compact, kept, last, budget - 24)
+        if shrunk is not None and len(str(shrunk["text"])) < len(str(last["text"])):
+            kept.append(shrunk)
+        elif shrunk is None:
+            omitted.insert(0, {"reason": "byte_budget", "expand": _slim_ref(last.get("expand"))})
+            compact["omitted"] = omitted[:OMITTED_LIST_CAP]
+            compact["omitted_count"] = len(omitted)
+        else:
+            kept.append(shrunk)
+            compact["evidence"] = kept
+            break
+        compact["evidence"] = kept
+    result = _finalize(compact, budget, protect_conflict=bool(conflict and kept[: len(conflict)] == conflict))
+    return _explain_degraded(result, candidates, budget, packet)
+
+
+def _explain_degraded(
+    compact: dict[str, object],
+    candidates: list[dict[str, object]],
+    budget: int,
+    packet: dict[str, object],
+) -> dict[str, object]:
+    """Say why a packet carries less evidence than the ledger found, and what to do.
+
+    An ``insufficient_budget`` packet with zero inline evidence used to look
+    like "nothing found". It now states how many spans were found, how many
+    are inline, the byte budget that would fit them, and how to recover them.
+    """
+    inline = len(compact.get("evidence") or [])
+    found = len(candidates)
+    degraded = compact.get("status") == "insufficient_budget" or (found and inline < found)
+    if not degraded:
+        return compact
+    full = _skeleton(packet, budget)
+    full["evidence"] = list(candidates)
+    needed = serialized_bytes(full) + 512
+    if inline == 0 and found:
+        reason = "evidence_found_but_none_fits_budget"
+    elif compact.get("status") == "insufficient_budget":
+        reason = "metadata_trimmed_to_fit_budget"
+    else:
+        reason = "some_evidence_omitted_for_budget"
+    note = {
+        "reason": reason,
+        "evidence_found": found,
+        "evidence_inline": inline,
+        "suggested_byte_budget": int(needed),
+        "recover": "call rso_expand with each omitted[].expand ref, or retry with byte_budget >= suggested_byte_budget",
+        "not_absence": True,
+    }
+    if inline == 0 and found:
+        compact["message"] = (
+            f"{found} matching span(s) were found but none fit in {budget} bytes. "
+            "This is a budget limit, not an empty result."
+        )
+    short = {k: note[k] for k in ("reason", "evidence_found", "evidence_inline", "suggested_byte_budget")}
+    # The explanation outranks echo metadata the caller already has.
+    optional = ("search_order", "corpus_versions", "empty_result", "checks", "query")
+    for drop in range(len(optional) + 1):
+        for key in optional[:drop]:
+            if key in compact and compact[key] not in (None, [], {}):
+                compact[key] = [] if isinstance(compact[key], list) else None
+        for candidate in (note, short):
+            compact["degraded"] = candidate
+            _stamp_size(compact)
+            if serialized_bytes(compact) <= budget:
+                return compact
+        # The note says everything the message does; keep the note.
+        if "message" in compact:
+            saved = compact.pop("message")
+            compact["degraded"] = short
+            _stamp_size(compact)
+            if serialized_bytes(compact) <= budget:
+                return compact
+            compact["message"] = saved
+        if inline == 0 and found and "message" in compact:
+            compact["message"] = "Evidence found; none fits this byte budget. Not an empty result."
+    compact.pop("degraded", None)
+    if serialized_bytes(compact) > budget:
+        compact.pop("message", None)
+    _stamp_size(compact)
+    return compact
 
 
 def parse_expand_ref(ref: str | dict) -> dict[str, object]:

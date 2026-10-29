@@ -23,7 +23,7 @@ bring-up. Do not ask the user to run PowerShell, PATH edits, or ingest commands.
 
 ## Resolve the CLI
 
-Current program version is **0.9.4**. Check `rso-context --version`. Install the matching release using `INSTALL.md` if absent or older. Python 3.11+, Git, and SQLite FTS5 are required. The installer is `python install.py` on Windows or `python3 install.py` on macOS. It copies an explicit manifest and prints the command path; it does not change PATH or register client skills. Current-branch macOS automated checks passed; the published release ZIP predates those checks. See VERIFICATION.md.
+Current program version is **0.11.0**. Check `rso-context --version`. Install the matching release using `INSTALL.md` if absent or older. Python 3.11+, Git, and SQLite FTS5 are required. The installer is `python install.py` on Windows or `python3 install.py` on macOS. It copies an explicit manifest and prints the command path; it does not change PATH or register client skills. Current-branch macOS automated checks passed; the published release ZIP predates those checks. See VERIFICATION.md.
 
 Resolve the CLI on PATH first. Default fallback locations:
 
@@ -73,7 +73,7 @@ Do not register a user profile, `Documents`, `Downloads`, or an entire cloud roo
 
 ## MCP adapter
 
-Launch roots grant access only. They do not register or ingest projects. Call `rso_use` for each permitted bounded path before querying it; `rso_resume` does not ingest. A copied checkout remains a separately registered context, and ingestion does not synchronize its files with another checkout. Never widen roots to fix an unregistered-project error. If launch roots change, reconnect the host; ingestion under an existing permitted root does not need a restart.
+Launch roots grant access only. They do not register or ingest projects. A project must be ingested once (with `rso_use` or `rso-context ingest`) before it can be queried; after that, query directly, with no per-session or per-sub-agent `rso_use` call. `rso_use` on a known project only checks freshness and refreshes a few changed files. `rso_resume` does not ingest. A copied checkout remains a separately registered context, and ingestion does not synchronize its files with another checkout. Never widen roots to fix an unregistered-project error. If launch roots change, reconnect the host; ingestion under an existing permitted root does not need a restart.
 
 Optional local stdio MCP uses the same core functions as the CLI. Pin and verify isolated `mcp==2.2.0`; `doctor` / `mcp --status` `runtime_ready` is true only for that exact version. **Tool discovery is not a promise of automatic use.** After the host lists `rso_use` / `rso_query`, still call them (or the CLI) with the current agent name and the actual task:
 
@@ -126,7 +126,7 @@ Query already searches the active project, then domain, then shared. Do not add 
 
 ## Validations and audit
 
-Record `verified`, `disputed`, or `superseded` only when the named validator or user explicitly supplies that decision. Retrieval frequency and agent agreement are not validation.
+Over MCP, use `rso_validate` (claim, validator, result, agent, optional path/evidence). Record `verified`, `disputed`, or `superseded` only when the named validator or user explicitly supplies that decision. Retrieval frequency and agent agreement are not validation.
 
 Agents may propose. They must not record verified, disputed, or superseded unless the user (named) told them to. Solver agreement is evidence, never proof. A `checks` pass is not `verified`.
 
@@ -136,7 +136,8 @@ rso-context admin --port 7432
 rso-context watch --path <workspace> --once
 rso-context pending --path <workspace>
 rso-context propose "<agent solve>" --agent <current-agent-name> --path <workspace>
-rso-context record-validation <claim-id> --validator <name> --result verified
+rso-context record-validation <claim-id-or-8-char-prefix> --validator <name> --result verified --agent <current-agent-name> --evidence "<what was checked>"
+rso-context record-validation --text "<exact claim text>" --path <workspace> --validator <name> --result verified
 rso-context run-budget --agent <current-agent-name> --path <workspace>
 rso-context audit "<request>" --answer-file <answer-path> --agent <current-agent-name> --path <workspace>
 rso-context validate

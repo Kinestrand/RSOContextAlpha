@@ -191,6 +191,56 @@ def _project_id(canonical_key: str) -> str:
     return str(uuid.uuid5(PROJECT_NAMESPACE, canonical_key))
 
 
+def folder_hash_from_key(canonical_key: str) -> str | None:
+    """The folder hash every canonical key form carries, or None."""
+    key = str(canonical_key or "")
+    if "#tree:" in key:
+        return key.rsplit("#tree:", 1)[1] or None
+    for prefix in ("git-path:", "directory-path:"):
+        if key.startswith(prefix):
+            return key[len(prefix):] or None
+    return None
+
+
+def _same_folder_project(connection, identity: ProjectIdentity):
+    """An existing project registered at this exact folder under another key form.
+
+    The same checkout used to split into several projects when one agent saw
+    the remote and another did not (no git on PATH, a network-share
+    ``safe.directory`` refusal, or a renamed remote): ``git:``, ``git-common:``,
+    ``git-path:`` and ``directory-path:`` keys for one folder. Reuse the
+    strongest such project instead of creating another. A folder that becomes
+    a Git repository after it was registered as a plain directory still starts
+    a new Git project, and a different root commit is never joined.
+    """
+    folder = sha256_text(os.path.normcase(identity.resolved_path))
+    rows = connection.execute(
+        "SELECT * FROM projects WHERE canonical_key LIKE ? ESCAPE '\\' "
+        "OR canonical_key IN (?, ?)",
+        (f"%#tree:{folder}", f"git-path:{folder}", f"directory-path:{folder}"),
+    ).fetchall()
+    candidates = []
+    for row in rows:
+        if folder_hash_from_key(str(row["canonical_key"])) != folder:
+            continue
+        if row["kind"] != "git":
+            # Never upgrade a plain directory project into a Git identity.
+            continue
+        if (
+            identity.git_root_commit
+            and row["git_root_commit"]
+            and row["git_root_commit"] != identity.git_root_commit
+        ):
+            continue
+        candidates.append(row)
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda row: (int(row["corpus_version"] or 0), str(row["created_at"] or ""), str(row["id"])),
+    )
+
+
 def register_project(
     database: Database,
     path: str | Path,
@@ -227,6 +277,12 @@ def register_project(
             if alias is not None:
                 project = alias
                 match_method = "resolved_path"
+
+        if project is None:
+            same_folder = _same_folder_project(connection, identity)
+            if same_folder is not None:
+                project = same_folder
+                match_method = "same_folder"
 
         if project is None and identity.kind != "git":
             # Similar structure is a possible match only, never authorization

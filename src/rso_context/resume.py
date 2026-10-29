@@ -42,6 +42,12 @@ def resume_context(
             f"SELECT MAX(s.last_seen) FROM sources s WHERE s.project_id=?{path_and}",
             (project_id, *path_params),
         ).fetchone()[0]
+        # Unchanged files are no longer rewritten on ingest; the ingest time is in meta.
+        last_ingest = connection.execute(
+            "SELECT value FROM meta WHERE key=?", (f"last_ingest:{project_id}",)
+        ).fetchone()
+        if last_ingest is not None and (last_seen is None or str(last_ingest[0]) > str(last_seen)):
+            last_seen = str(last_ingest[0])
         active_sources = connection.execute(
             f"SELECT COUNT(*) FROM sources s WHERE s.project_id=? AND s.active=1{path_and}",
             (project_id, *path_params),

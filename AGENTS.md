@@ -32,7 +32,7 @@ Do not use provider APIs, embeddings, screen capture, keystrokes, or browser his
 ## Indexing
 RSO does not learn from chat. It re-reads files.
 Required before context work: ingest this folder, then resume, then query with the actual task.
-MCP access and registration are separate. An MCP tool may reach a bounded project folder; that does not register or ingest it. Call `rso_use` for each project before querying it. An unregistered-project error calls for `rso_use`, not for broader access. Source synchronization and index refresh are separate operations.
+MCP access and registration are separate. An MCP tool may reach a bounded project folder; that does not register or ingest it. Ingest each project once (with `rso_use` or `rso-context ingest`) before querying it; repeat calls are not needed each session. An unregistered-project error calls for `rso_use`, not for broader access. Source synchronization and index refresh are separate operations.
 Git ingest uses tracked files only (`git ls-files --cached`). Never ingest `private/`, gitignored files, backups, or output folders.
 Do not register a user profile.
 `ingest` must skip unchanged files and re-chunk files that changed.

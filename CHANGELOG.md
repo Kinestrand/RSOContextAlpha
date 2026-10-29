@@ -1,5 +1,106 @@
 # Changelog
 
+
+## 0.11.0
+
+Leaner packets, cheaper writes, better recall per byte.
+
+- Defaults: compact byte budget 12 KB -> 4 KB, query limit 8 -> 4 (rso_check keeps 8).
+- Graph nodes are off by default in query packets (`include_graph` / `--graph` to opt in).
+- CLI `query` prints the compact packet by default; `--full` returns rso-context-packet/v2.
+- `packet_hash` no longer covers budget counters (`run`), so budgeted and unbudgeted runs hash alike.
+- MCP server instructions drop the "call rso_use first" rule. `rso_use` on a known project is a
+  read-only freshness check plus a small targeted refresh, never a whole-project ingest.
+- Per-file dedup (max 2 items per file), adjacent span merging, cross-file identical-chunk dedup.
+- Compact evidence items carry hashes and project id only inside `expand`.
+- Claims: capped at 4, short/code-like noise dropped, no unconditional verified/proposed boosts;
+  coordination-board paths rank after other hits.
+- Very long spans (one-line or minified files) are windowed around the match in packets.
+- Ingest skips vendored and generated content (third_party, worktrees, nested checkouts, lock
+  files, *.min.js, *.map) and indexes a repeated chunk inside one file once.
+- Edited files no longer return empty evidence: the query re-ingests just those files and retries;
+  with refresh off, the indexed copy is returned labelled stale.
+- Schema revision 8 (compatible with schema_version 7, so running 0.10 servers keep working): FTS5 porter stemming with a prefix index (rebuilt from the existing index on
+  migration, orphan rows dropped), larger stop-word list, bm25 column weights, AND-first query
+  planning with OR fill.
+- Ingest reads and hashes files outside the write lock, writes only changed files, and commits in
+  batches of 200 files.
+- New `prune-orphans` command removes chunks of superseded file versions (protected claim evidence
+  kept); dry run unless `--apply --yes`.
+- A query performs at most one write transaction (budget, cache and run record together).
+
+## 0.10.0
+
+### Fixed
+
+- Queries on large ledgers took minutes. Graph matching scanned every node of
+  the project with a prefix `LIKE` and checked liveness for every match, then
+  re-hydrated every edge of each hub node. It now uses a new
+  `(project_id, canonical_name)` index with equality and prefix ranges, scores
+  candidates, and stops at the first live plate per node. On a 1.7M-chunk
+  ledger a fixed 12-query set went from a median of about 98 s (p90 205 s) to
+  0.55 s (p90 1.0 s) with the cache off.
+- The packet cache almost never hit. The key included the run-budget counter,
+  so a budgeted agent never matched its own earlier query; any packet with one
+  stale candidate was treated as invalid forever; and `Z:\x`, a UNC spelling
+  and `x/` were different keys. The key now uses spacing-normalized query text,
+  the resolved scope path, corpus versions and retrieval config; freshness is
+  checked by requiring each recorded plate to be in the state it was in when the
+  packet was built; and run info is refreshed on the reused packet. Packets now
+  carry `cache: {hit, key}` (excluded from `packet_hash`).
+- `rso_use` and ingest failed with `too many SQL variables` when a file with
+  more chunk versions than the SQLite build allows (32,766 in the MCP runtime)
+  changed. FTS deletes now go through a chunk-to-rowid map in batches sized to
+  the connection's limit, and no longer scan the whole FTS table per file.
+- One folder could be registered as several projects (`git:`, `git-common:`,
+  `git-path:` and `directory-path:` keys) when agents saw the Git remote
+  differently or a remote was renamed. Registration now reuses the existing
+  Git project registered at the same folder. A different root commit is never
+  joined, and a plain-directory project still does not become a Git project.
+- `doctor` ran a full `PRAGMA quick_check` and counted every FTS match, which
+  took minutes on a multi-GB ledger. It now reads the header and schema by
+  default and reports `timings_ms`; `doctor --integrity` runs the full check.
+
+### Added
+
+- `cleanup-projects --apply` deletes in short, separately committed batches with a pause between them, prints progress, reports the longest lock hold, and resumes an interrupted run from a work list saved in the ledger.
+- Indexes on `edges(subject_id)`, `edges(object_id)` and `edges(evidence_chunk_id)`, added idempotently on open, so deleting nodes and chunks no longer scans every edge for foreign-key checks.
+- `compact` reports reclaimable space; `compact --yes` runs VACUUM with an explicit locking warning.
+
+- Schema 7 (additive migration): `runs.agent`, `chunk_fts_map`, and indexes on
+  `nodes(project_id, canonical_name)`, `claim_evidence(chunk_id)`,
+  `cache(project_id)` and `runs(agent, created_at)`. Query and check runs from
+  the CLI and MCP record the agent. `rso-context usage [--since DATE]` reports
+  runs by agent and project.
+- `rso-context cleanup-projects` reports duplicate registrations of one folder
+  (merge groups with a survivor) and junk projects (agent worktrees, temp
+  folders, missing paths, scratch names, empty projects). It is a dry run
+  unless `--apply --yes` is given; projects with proposed or validated claims
+  are protected unless `--include-protected`. Merges move aliases, runs,
+  budgets, proposed claims and validations to the survivor and never drop a
+  named validation.
+- `record-validation` accepts a unique 8+ character id prefix or `--text` with
+  `--path`, plus `--agent` and `--evidence`. New MCP tool `rso_validate`
+  records a named validation (validator + result). Existing tools and flags are
+  unchanged.
+- Degraded compact packets explain themselves: a `degraded` object gives the
+  reason, evidence found vs inline, a byte budget that would fit, and how to
+  recover omitted spans. `insufficient_budget` with zero inline evidence now
+  says it is a budget limit, not an empty result.
+
+### Changed
+
+- FTS search is scoped to the active, domain and shared projects inside
+  `MATCH`, so the candidate cap no longer fills with other projects' hits.
+- For requests with four or more terms, the any-term fallback drops spans that
+  share only one term with the request when better spans exist, and graph nodes
+  must share two terms (or equal one) with such requests. Project-id nodes are
+  never returned as graph matches. These cut unrelated board cards from packets.
+- Connections use a 64 MB page cache, in-memory temp storage and memory-mapped
+  reads.
+- Query config algorithm is `fts5-bounded-requirements-v5-scoped-graph`; replay
+  of runs recorded by older builds may report algorithmic drift.
+
 ## 0.9.4
 
 ### Changed

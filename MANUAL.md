@@ -2,7 +2,7 @@
 
 RSO means Recursive Semantic Octree. [RESEARCH-ORIGIN.md](RESEARCH-ORIGIN.md) explains the research proposal and the smaller evidence-ledger implementation supplied here.
 
-This manual describes the 0.9.4 CLI. Commands return JSON unless they're help/version output or the local browser viewer. Replace `<current-agent-name>` with the actual client identity and `<workspace>` with an absolute, bounded project directory. Installation is covered in [INSTALL.md](INSTALL.md).
+This manual describes the 0.11.0 CLI. Commands return JSON unless they're help/version output or the local browser viewer. Replace `<current-agent-name>` with the actual client identity and `<workspace>` with an absolute, bounded project directory. Installation is covered in [INSTALL.md](INSTALL.md).
 
 ## Contents
 
@@ -118,6 +118,15 @@ A proposal doesn't acquire source authority. Record a validation only after the 
 rso-context record-validation <claim-id> --validator <validator-name> --result verified
 ```
 
+You don't need the full id. Use a unique prefix of 8 or more characters (as shown in a packet's `claims`), or look the claim up by its exact text in a project:
+
+```text
+rso-context record-validation 3f2a9c1e --validator "pytest suite" --result verified --agent <current-agent-name> --evidence "tests/test_export.py passed"
+rso-context record-validation --text "Use a 24 fps preview" --path <workspace> --validator <validator-name> --result verified
+```
+
+Through MCP, `rso_validate` takes `claim` (id, prefix, or exact text with `path`), `validator`, `result`, `agent`, and optional `evidence` or `details`. `validator` names who or what checked the claim (a person, a test suite, a command); `agent` is who recorded it and is stored as `details.recorded_by`. An observed claim stays unverified until such a named validation exists.
+
 Allowed results are `verified`, `disputed`, and `superseded`. Optional `--details-file <file.json>` attaches a JSON object describing the decision or check. For example, a file can contain `{"reason":"Owner approved the preview frame rate"}`. The ledger records the supplied name; it isn't an authentication system for the validator. Agent consensus and a passing retrieval check aren't permission to promote a claim.
 
 ## 5. Budgets, audits, and coordination cards
@@ -190,7 +199,7 @@ rso-context compact-pointers
 rso-context admin --port 7432
 ```
 
-`doctor` checks Python, Git, SQLite, FTS5, and database quick-check status. It also reports optional MCP runtime status and read-only Codex/Claude Code config presence; missing MCP does not fail `ready`. `validate` checks ledger/evidence invariants. After upgrading an existing schema 4 database to schema 5, run `compact-pointers` once; only reconstructable legacy chunk bodies are cleared. It isn't a secure data erasure operation. `admin` serves a read-only viewer at `http://127.0.0.1:7432`; stop it with Ctrl+C.
+`doctor` checks Python, Git, SQLite, FTS5, the schema version, and the database header; `doctor --integrity` also runs a full `PRAGMA quick_check`, which reads every page and can take minutes on a large ledger. `timings_ms` shows where time went. It also reports optional MCP runtime status and read-only Codex/Claude Code config presence; missing MCP does not fail `ready`. `validate` checks ledger/evidence invariants. After upgrading an existing schema 4 database to schema 5, run `compact-pointers` once; only reconstructable legacy chunk bodies are cleared. It isn't a secure data erasure operation. `admin` serves a read-only viewer at `http://127.0.0.1:7432`; stop it with Ctrl+C.
 
 Optional MCP:
 
@@ -202,9 +211,19 @@ rso-context mcp --remove --client claude-code
 
 `--setup` / `--remove` touch only the `rso-context` host entry. The entry pins no `--root`; tool calls may name any bounded project folder unless the host was set up with `--strict-roots`. Pass `--config <file>` for isolated files. MCP `rso_query` returns `rso-mcp-packet/v1`; CLI `query` stays `rso-context-packet/v2` unless `--compact` is used. `doctor` and `mcp --status` treat the isolated runtime as ready only when `runtime_mcp_version` is exactly `2.2.0`.
 
+### Duplicate and junk projects
+
+```text
+rso-context cleanup-projects
+```
+
+prints a dry-run plan: merge groups (one folder registered under several identity keys, with the survivor that keeps the history) and prune candidates with reasons (`agent_worktree`, `temp_folder`, `path_missing`, `scratch_name`, `empty`). Projects with proposed or validated claims are marked `protected`. Nothing changes until you back up the ledger and run `cleanup-projects --apply --yes` (optionally `--only merge`, `--project-id <id>`). Merges keep aliases, runs, budgets, proposed claims, and named validations on the survivor; run `ingest` on the survivor afterwards. `--apply` works in short write transactions (`--batch-rows`, default 2000, and `--pause-ms`, default 50), so other tools keep reading and writing while it runs, and prints progress to stderr. The work list is saved in the ledger before anything is deleted; if the apply is interrupted, run the same `--apply --yes` again and it finishes that list (the dry run shows it under `pending`).
+
+After a large cleanup, `rso-context compact` reports how much space VACUUM would reclaim. `rso-context compact --yes` runs VACUUM: it holds an exclusive lock on the whole ledger until it finishes and needs free disk space of about the database size, so back up first and run it when nothing else is using RSO.
+
 ## 9. Troubleshooting
 
-MCP access does not populate the ledger. Use `rso_use` separately for each project before `rso_query`. Refresh ingestion after edits. Updating an index does not update or synchronize source files between project copies. See [VERIFICATION.md](VERIFICATION.md) for tested host behavior.
+MCP access does not populate the ledger. Ingest each project once (with `rso_use` or `rso-context ingest`) before `rso_query`; later sessions can query directly. `rso_use` on a known project is a cheap freshness check that refreshes up to 25 changed files and otherwise tells you to run `ingest`. A query that hits a file edited since ingest re-ingests that file and retries. Updating an index does not update or synchronize source files between project copies. See [VERIFICATION.md](VERIFICATION.md) for tested host behavior.
 
 | Symptom | Action |
 | --- | --- |
@@ -244,7 +263,7 @@ and `--agent` values in repeatable agent workflows.
 | Command | Purpose and common arguments |
 | --- | --- |
 | `init` | Initialize the selected database |
-| `doctor` | Check local runtime and selected database readiness |
+| `doctor` | Check local runtime and selected database readiness; `--integrity` adds a full `PRAGMA quick_check` |
 | `use` | Register, ingest, and resume; `--path`, required `--agent` |
 | `register` | Register a folder; `--path`, `--agent`, optional `--scope` |
 | `ingest` | Refresh one folder with `--path`; `--all` refreshes registered projects |
@@ -256,7 +275,10 @@ and `--agent` values in repeatable agent workflows.
 | `explain-project` | Explain project matching for `--path` |
 | `propose` | File a positional suggestion; `--agent`, `--path` |
 | `pending` | List claims awaiting named validation; optional `--path` |
-| `record-validation` | Record an authorized decision for a claim ID; `--validator`, `--result` |
+| `record-validation` | Record an authorized decision for a claim id, 8+ char prefix, or `--text` with `--path`; `--validator`, `--result`, optional `--agent`, `--evidence` |
+| `cleanup-projects` | Report duplicate and junk project registrations; dry run unless `--apply --yes`; `--only merge|prune`, `--include-protected`, `--project-id`, `--batch-rows`, `--pause-ms`; resumable |
+| `compact` | Estimate reclaimable space; `--yes` runs VACUUM (exclusive lock) |
+| `usage` | Run counts by agent and project; optional `--since <ISO date>` |
 | `run-budget` | Inspect, set, or clear a budget; `--agent`, `--path`, optional `--set` or `--clear` |
 | `audit` | Compare a positional request and `--answer-file` against evidence |
 | `inbox` | Read open coordination cards; `--path`, optional `--topic`, `--limit` |
@@ -348,12 +370,17 @@ database. Tool calls may name any bounded project folder unless the launch uses
 | `rso_check` | Answer 1-12 typed questions from evidence within a byte budget |
 | `rso_explain` | Read a saved packet or check subject to launch-root filtering |
 | `rso_expand` | Recover omitted source spans using returned expansion references |
+| `rso_validate` | Record a named validation for one claim; this writes |
 
 Use the tool schema advertised by the connected server for exact arguments.
 If a packet is truncated, expand its references instead of inventing missing
 text. If expansion says stale or unavailable, reconcile the source and ingest
 again. A byte limit can produce `insufficient_budget`; a small result does not
 mean the source contains no answer.
+
+A packet that carries less evidence than was found has a `degraded` object:
+`reason`, `evidence_found`, `evidence_inline`, `suggested_byte_budget`, and how
+to recover. Retry with that byte budget or expand the omitted references.
 
 For `status: insufficient_budget` with `evidence: []`, take the returned
 `source_packet_hash` and call `rso_explain(packet_hash=<source_packet_hash>)`.

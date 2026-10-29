@@ -34,7 +34,7 @@ REPLAY_SCHEMA = "rso-replay-report/v1"
 # ``run`` is budget bookkeeping rather than retrieval behaviour: a check reads the
 # live budget, and a query replay restores the recorded one so its packet_hash
 # stays comparable. Neither says anything about whether retrieval changed.
-_VOLATILE_FIELDS = ("packet_hash", "check_hash", "status", "run")
+_VOLATILE_FIELDS = ("packet_hash", "check_hash", "status", "run", "cache")
 
 
 def _stored_questions(query_text: str) -> object | None:

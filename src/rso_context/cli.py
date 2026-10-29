@@ -17,14 +17,15 @@ from .audit import (
     pending_validations,
     propose_claim,
     record_validation,
+    resolve_claim_id,
     validate_graph,
 )
 from .config import Limits, automatic_discovery_roots, default_db_path
-from .db import Database
+from .db import SCHEMA_REVISION, SCHEMA_VERSION, Database, read_schema_revision, read_schema_version
 from .discovery import discover_and_register
 from .identity import project_explanation, register_project, resolve_existing_project
 from .admin import serve_admin
-from .ingest import ingest_project
+from .ingest import ingest_project, use_workspace
 from .mcp_setup import CLIENTS as MCP_SETUP_CLIENTS
 from .pointers import compact_pointers
 from .check import CHECK_SCHEMA, check_questions, explain_check, fit_check
@@ -202,7 +203,7 @@ def command_use(args: argparse.Namespace) -> int:
     """Agent one-shot: register, incremental ingest, resume. Humans should not run this by hand."""
     database = _database(args)
     path = str(Path(args.path or Path.cwd()).expanduser().resolve())
-    ingest = ingest_project(database, path, agent=args.agent, limits=_limits(args))
+    ingest = use_workspace(database, path, agent=args.agent, limits=_limits(args))
     packet = resume_context(
         database,
         path=path,
@@ -237,8 +238,9 @@ def command_query(args: argparse.Namespace) -> int:
         token_budget=args.token_budget,
         use_cache=not args.no_cache,
         run_budget=args.run_budget,
+        include_graph=getattr(args, "graph", False),
     )
-    if getattr(args, "compact", False):
+    if not getattr(args, "full", False):
         packet = compact_packet(packet, byte_budget=getattr(args, "byte_budget", Limits.compact_byte_budget))
     _print(packet)
     return 0
@@ -373,15 +375,136 @@ def command_record_validation(args: argparse.Namespace) -> int:
     details = json.loads(raw_details)
     if not isinstance(details, dict):
         raise ValueError("Validation details must be a JSON object")
+    if getattr(args, "evidence", None):
+        details.setdefault("evidence", args.evidence)
+    database = _database(args)
+    claim_id = resolve_claim_id(
+        database,
+        args.claim_id,
+        text=getattr(args, "text", None),
+        path=getattr(args, "path", None),
+        project_id=getattr(args, "project_id", None),
+    )
     _print(
         record_validation(
-            _database(args),
-            args.claim_id,
+            database,
+            claim_id,
             validator=args.validator,
             result=args.result,
             details=details,
+            agent=getattr(args, "agent", None),
         )
     )
+    return 0
+
+
+def command_cleanup_projects(args: argparse.Namespace) -> int:
+    from .cleanup import apply_cleanup, plan_cleanup
+
+    database = _database(args)
+    if not args.apply:
+        _print(plan_cleanup(database))
+        return 0
+    if not args.yes:
+        raise ValueError(
+            "--apply changes the ledger. Back it up first, review the dry run, then add --yes."
+        )
+    _print(
+        apply_cleanup(
+            database,
+            merge=args.only in (None, "merge"),
+            prune=args.only in (None, "prune"),
+            include_protected=args.include_protected,
+            project_ids=args.project_id or None,
+            batch_rows=args.batch_rows,
+            pause_seconds=args.pause_ms / 1000.0,
+            progress=lambda message: print(message, file=sys.stderr, flush=True),
+        )
+    )
+    return 0
+
+
+def command_prune_orphans(args: argparse.Namespace) -> int:
+    from .prune import plan_orphans, prune_orphans
+
+    database = _database(args)
+    if not args.apply:
+        _print(plan_orphans(database))
+        return 0
+    if not args.yes:
+        raise ValueError("--apply changes the ledger. Back it up first, review the dry run, then add --yes.")
+    _print(
+        prune_orphans(
+            database,
+            batch_rows=args.batch_rows,
+            pause_seconds=args.pause_ms / 1000.0,
+            progress=lambda message: print(message, file=sys.stderr, flush=True),
+        )
+    )
+    return 0
+
+
+def compact_estimate(database) -> dict[str, object]:
+    database.initialize()
+    connection = database.connect()
+    try:
+        page_size = connection.execute("PRAGMA page_size").fetchone()[0]
+        pages = connection.execute("PRAGMA page_count").fetchone()[0]
+        free = connection.execute("PRAGMA freelist_count").fetchone()[0]
+    finally:
+        connection.close()
+    return {
+        "database_bytes": page_size * pages,
+        "free_bytes": page_size * free,
+        "estimated_bytes_after": page_size * (pages - free),
+        "free_fraction": round(free / pages, 4) if pages else 0.0,
+    }
+
+
+def command_compact(args: argparse.Namespace) -> int:
+    database = _database(args)
+    estimate = compact_estimate(database)
+    warning = (
+        "VACUUM rewrites the whole ledger and holds an exclusive lock until it finishes; "
+        "every other RSO tool will see 'database is locked' meanwhile. It needs free disk "
+        "space of about the database size. Back up first and run it when nothing else is using RSO."
+    )
+    if not args.yes:
+        _print({"schema": "rso-compact/v1", "mode": "dry_run", "warning": warning, **estimate,
+                "note": "Nothing changed. Re-run with --yes to VACUUM."})
+        return 0
+    print(warning, file=sys.stderr, flush=True)
+    started = time.monotonic()
+    connection = database.connect()
+    try:
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        connection.execute("VACUUM")
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        connection.close()
+    after = compact_estimate(database)
+    _print({"schema": "rso-compact/v1", "mode": "applied", "before": estimate, "after": after,
+            "elapsed_seconds": round(time.monotonic() - started, 1)})
+    return 0
+
+
+def command_usage(args: argparse.Namespace) -> int:
+    database = _database(args)
+    database.initialize()
+    clauses, params = [], []
+    if args.since:
+        clauses.append("r.created_at >= ?")
+        params.append(args.since)
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    with database.connect() as connection:
+        rows = connection.execute(
+            "SELECT COALESCE(r.agent, '(unrecorded)') AS agent, p.display_name AS project, "
+            "COUNT(*) AS runs, ROUND(AVG(r.elapsed_ms)) AS avg_ms, MAX(r.created_at) AS last_run "
+            f"FROM runs r JOIN projects p ON p.id=r.project_id{where} "
+            "GROUP BY 1, 2 ORDER BY runs DESC",
+            params,
+        ).fetchall()
+    _print({"schema": "rso-usage/v1", "since": args.since, "rows": [dict(row) for row in rows]})
     return 0
 
 
@@ -465,25 +588,60 @@ def command_doctor(args: argparse.Namespace) -> int:
     from .mcp_runtime import runtime_status
     from .mcp_setup import inspect_clients
 
+    timings: dict[str, float] = {}
+
+    def timed(label, fn):
+        started = time.perf_counter()
+        try:
+            return fn()
+        finally:
+            timings[label] = round((time.perf_counter() - started) * 1000, 1)
+
     database = _database(args)
     checks: dict[str, object] = {
         "python": sys.version.split()[0],
-        "git": _found_git(),
+        "git": timed("git", _found_git),
         "database": str(database.path),
         "automatic_roots": [str(path) for path in automatic_discovery_roots()],
     }
+    if database.path.exists():
+        checks["database_bytes"] = database.path.stat().st_size
     with database.connect() as connection:
         checks["sqlite"] = sqlite3.sqlite_version
-        checks["quick_check"] = connection.execute("PRAGMA quick_check").fetchone()[0]
+        checks["schema_version"] = read_schema_version(connection)
+        checks["code_schema_version"] = SCHEMA_VERSION
+        checks["schema_revision"] = read_schema_revision(connection)
+        checks["code_schema_revision"] = SCHEMA_REVISION
+        # A full quick_check reads every page: minutes on a multi-GB ledger. It
+        # runs only with --integrity; the default reads the header and schema.
+        if getattr(args, "integrity", False):
+            checks["quick_check"] = timed(
+                "quick_check", lambda: connection.execute("PRAGMA quick_check").fetchone()[0]
+            )
+            checks["integrity"] = "quick_check"
+        else:
+            def header_check() -> str:
+                connection.execute("SELECT count(*) FROM sqlite_master").fetchone()
+                connection.execute("PRAGMA schema_version").fetchone()
+                return "ok"
+
+            checks["quick_check"] = timed("header", header_check)
+            checks["integrity"] = "header_only (run `doctor --integrity` for a full quick_check)"
         try:
-            connection.execute("SELECT count(*) FROM chunk_fts WHERE chunk_fts MATCH 'test'").fetchone()
+            timed(
+                "fts5",
+                lambda: connection.execute(
+                    "SELECT 1 FROM chunk_fts WHERE chunk_fts MATCH 'test' LIMIT 1"
+                ).fetchone(),
+            )
             checks["fts5"] = True
         except sqlite3.OperationalError as error:
             checks["fts5"] = False
             checks["fts5_error"] = str(error)
-    checks["mcp"] = runtime_status()
-    checks["mcp_clients"] = inspect_clients()
+    checks["mcp"] = timed("mcp_runtime", runtime_status)
+    checks["mcp_clients"] = timed("mcp_clients", inspect_clients)
     checks["ready"] = checks["quick_check"] == "ok" and checks["fts5"] is True and checks["git"] is not None
+    checks["timings_ms"] = timings
     _print(checks)
     return 0 if checks["ready"] else 1
 
@@ -647,13 +805,23 @@ def build_parser() -> argparse.ArgumentParser:
     query_parser.add_argument(
         "--compact",
         action="store_true",
-        help="Return rso-mcp-packet/v1 instead of the default rso-context-packet/v2",
+        help="Compact rso-mcp-packet/v1 output (the default; kept for old scripts)",
+    )
+    query_parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Return the full rso-context-packet/v2 instead of the compact packet",
+    )
+    query_parser.add_argument(
+        "--graph",
+        action="store_true",
+        help="Include matching graph nodes in the packet (off by default)",
     )
     query_parser.add_argument(
         "--byte-budget",
         type=int,
         default=Limits.compact_byte_budget,
-        help="Max ASCII JSON bytes for --compact (MCP default too)",
+        help="Max ASCII JSON bytes for the compact packet (MCP default too)",
     )
     query_parser.set_defaults(function=command_query)
 
@@ -721,12 +889,66 @@ def build_parser() -> argparse.ArgumentParser:
     record_validation_parser = subparsers.add_parser(
         "record-validation", help="Record a named validation for a claim"
     )
-    record_validation_parser.add_argument("claim_id")
+    record_validation_parser.add_argument(
+        "claim_id", nargs="?", help="Claim id or a unique 8+ character prefix (or use --text)"
+    )
+    record_validation_parser.add_argument("--text", help="Exact claim text, looked up in --path's project")
+    record_validation_parser.add_argument("--path", help="Project folder for --text lookup")
+    record_validation_parser.add_argument("--project-id", help="Project id for --text lookup")
+    record_validation_parser.add_argument("--agent", help="Who is recording this (attribution)")
+    record_validation_parser.add_argument("--evidence", help="Short evidence note, stored in details.evidence")
     record_validation_parser.add_argument("--validator", required=True)
     record_validation_parser.add_argument("--result", choices=sorted(VALIDATION_RESULTS), required=True)
     record_validation_parser.add_argument("--details", help="Validation details as a JSON object")
     record_validation_parser.add_argument("--details-file", help="Path to validation details JSON")
     record_validation_parser.set_defaults(function=command_record_validation)
+
+    cleanup_parser = subparsers.add_parser(
+        "cleanup-projects",
+        help="Report duplicate and junk project registrations (dry run unless --apply --yes)",
+    )
+    cleanup_parser.add_argument("--apply", action="store_true", help="Change the ledger (needs --yes)")
+    cleanup_parser.add_argument("--yes", action="store_true", help="Confirm --apply after a backup")
+    cleanup_parser.add_argument("--only", choices=["merge", "prune"], help="Apply only merges or only prunes")
+    cleanup_parser.add_argument(
+        "--include-protected", action="store_true", help="Also prune projects with proposed/validated claims"
+    )
+    cleanup_parser.add_argument(
+        "--project-id", action="append", help="Limit --apply to these project ids (repeatable)"
+    )
+    cleanup_parser.add_argument(
+        "--batch-rows",
+        type=int,
+        default=2000,
+        help="Rows deleted per write transaction during --apply (default 2000)",
+    )
+    cleanup_parser.add_argument(
+        "--pause-ms",
+        type=int,
+        default=50,
+        help="Pause between write transactions so other tools get the lock (default 50)",
+    )
+    cleanup_parser.set_defaults(function=command_cleanup_projects)
+
+    prune_parser = subparsers.add_parser(
+        "prune-orphans",
+        help="Remove chunks of superseded file versions (dry run unless --apply --yes)",
+    )
+    prune_parser.add_argument("--apply", action="store_true", help="Change the ledger (needs --yes)")
+    prune_parser.add_argument("--yes", action="store_true", help="Confirm --apply after a backup")
+    prune_parser.add_argument("--batch-rows", type=int, default=2000)
+    prune_parser.add_argument("--pause-ms", type=int, default=50)
+    prune_parser.set_defaults(function=command_prune_orphans)
+
+    compact_parser = subparsers.add_parser(
+        "compact",
+        help="Reclaim free space with VACUUM (dry run by default; locks the ledger while it runs)",
+    )
+    compact_parser.add_argument("--yes", action="store_true", help="Run VACUUM now (exclusive lock)")
+    compact_parser.set_defaults(function=command_compact)
+    usage_parser = subparsers.add_parser("usage", help="Run counts by agent and project")
+    usage_parser.add_argument("--since", help="ISO timestamp lower bound, e.g. 2026-10-01")
+    usage_parser.set_defaults(function=command_usage)
 
     audit_parser = subparsers.add_parser("audit", help="Run a lightweight Match Move coverage audit")
     audit_parser.add_argument("request")
@@ -745,7 +967,7 @@ def build_parser() -> argparse.ArgumentParser:
     check_parser.add_argument("--path")
     check_parser.add_argument("--project-id")
     check_parser.add_argument("--agent", default="unknown")
-    check_parser.add_argument("--limit", type=int, default=Limits.query_limit)
+    check_parser.add_argument("--limit", type=int, default=Limits.check_limit)
     check_parser.add_argument(
         "--byte-budget",
         type=int,
@@ -792,6 +1014,9 @@ def build_parser() -> argparse.ArgumentParser:
     replay_parser.set_defaults(function=command_replay)
 
     doctor_parser = subparsers.add_parser("doctor", help="Check local runtime support")
+    doctor_parser.add_argument(
+        "--integrity", action="store_true", help="Also run PRAGMA quick_check (slow on large ledgers)"
+    )
     doctor_parser.set_defaults(function=command_doctor)
 
     mcp_parser = subparsers.add_parser(

@@ -21,7 +21,13 @@ def record_validation(
     validator: str,
     result: str,
     details: dict[str, object] | None = None,
+    agent: str | None = None,
 ) -> dict[str, object]:
+    """Record a named validation. Only this changes a claim's trust_state.
+
+    ``validator`` names who or what checked the claim (a person, a test suite, a
+    command). ``agent`` is attribution for whoever recorded it.
+    """
     database.initialize()
     validator_name = validator.strip()
     validation_result = result.strip().casefold()
@@ -32,6 +38,9 @@ def record_validation(
         raise ValueError(f"Validation result must be one of: {allowed}")
     if details is not None and not isinstance(details, dict):
         raise ValueError("Validation details must be a JSON object")
+    details = dict(details or {})
+    if agent and str(agent).strip() and "recorded_by" not in details:
+        details["recorded_by"] = str(agent).strip()
 
     now = utc_now()
     with database.transaction() as connection:
@@ -74,6 +83,54 @@ def record_validation(
         "claim": updated_claim,
         "validation": validation,
     }
+
+
+def resolve_claim_id(
+    database: Database,
+    claim: str | None = None,
+    *,
+    text: str | None = None,
+    path: str | Path | None = None,
+    project_id: str | None = None,
+) -> str:
+    """Find one claim by full id, unique id prefix (8+ chars), or exact claim text.
+
+    Text lookup uses the same normalization as ingest and propose, inside the
+    project at ``path`` / ``project_id``. Ambiguity is an error, never a guess.
+    """
+    database.initialize()
+    value = str(claim or "").strip()
+    with database.connect() as connection:
+        if value:
+            row = connection.execute("SELECT id FROM claims WHERE id=?", (value,)).fetchone()
+            if row is not None:
+                return str(row["id"])
+            if len(value) >= 8 and re.fullmatch(r"[0-9a-fA-F-]+", value):
+                rows = connection.execute(
+                    "SELECT id FROM claims WHERE id >= ? AND id < ? LIMIT 2",
+                    (value.casefold(), value.casefold() + "\uffff"),
+                ).fetchall()
+                if len(rows) == 1:
+                    return str(rows[0]["id"])
+                if len(rows) > 1:
+                    raise ValueError(f"Claim id prefix is ambiguous: {value}")
+            if text is None:
+                raise ValueError(f"Unknown claim id: {value}")
+        if not text or not str(text).strip():
+            raise ValueError("Provide a claim id or --text with the claim's exact text")
+    project = resolve_existing_project(database, path=path, project_id=project_id)
+    normalized = _canonical_name(re.sub(r"\s+", " ", str(text)).strip())
+    with database.connect() as connection:
+        row = connection.execute(
+            "SELECT id FROM claims WHERE project_id=? AND normalized_text=?",
+            (str(project["id"]), normalized),
+        ).fetchone()
+    if row is None:
+        raise ValueError(
+            "No claim with that text in this project. File it with `rso-context propose` "
+            "first, then record the validation against the returned id."
+        )
+    return str(row["id"])
 
 
 def propose_claim(
