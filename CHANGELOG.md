@@ -1,7 +1,7 @@
 # Changelog
 
 
-## 0.11.0 (unreleased, branch feat/0.11.0-lean)
+## 0.11.0
 
 Leaner packets, cheaper writes, better recall per byte.
 

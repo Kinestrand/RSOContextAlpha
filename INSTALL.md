@@ -176,7 +176,7 @@ config's env block instead of adding to it; without those the server cannot
 find a home directory or load winsock, dies before the handshake, and the host
 reports a request timeout rather than a crash.
 
-Isolated checks must pass `--config <file>`. Do not point tests at a live user config. Setup and removal rewrite only the `rso-context` tables; other `[mcp_servers.*]` headers, including those with trailing comments, stay in place. MCP query and explain omit sources outside the launch roots and the folders this server process has been asked to use. `rso_query` sends a text-only tool result so the JSON-RPC `tools/call` payload stays within `byte_budget`. Other clients can launch the stdio command printed by `doctor` under `mcp_clients.stdio`; that is not a tested compatibility claim. Tool discovery is not automatic use: still call `rso_use` then `rso_query` with the actual task.
+Isolated checks must pass `--config <file>`. Do not point tests at a live user config. Setup and removal rewrite only the `rso-context` tables; other `[mcp_servers.*]` headers, including those with trailing comments, stay in place. MCP query and explain omit sources outside the launch roots and the folders this server process has been asked to use. `rso_query` sends a text-only tool result so the JSON-RPC `tools/call` payload stays within `byte_budget`. Other clients can launch the stdio command printed by `doctor` under `mcp_clients.stdio`; that is not a tested compatibility claim. Tool discovery is not automatic use: still call `rso_query` with the actual task (`rso_use` first only for a never-ingested folder).
 
 ## Register permitted projects
 
@@ -192,10 +192,10 @@ Register `SKILL.md` from the installed package when the client supports a skill 
 
 ## Upgrade and removal
 
-Use the package attached to the [0.10.0 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.10.0).
+Use the package attached to the [0.11.0 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.11.0).
 The release ZIP, source branch, and installed program are distinct: downloading
 new source does not upgrade the installed command. Confirm the installed command
-reports `0.10.0` after running the installer. See [CHANGELOG.md](CHANGELOG.md) for
+reports `0.11.0` after running the installer. See [CHANGELOG.md](CHANGELOG.md) for
 the changes from 0.7.0.
 
 Run the new release's installer with the same prefix. Differing package files are backed up beside their targets with `.rso-backup-<id>` suffixes before replacement. Identical files are skipped; unrelated files are preserved. Keep backups until the upgraded program has been checked. Program upgrades don't copy or delete the index. After a schema 4 to 5 upgrade, run `rso-context compact-pointers` once.

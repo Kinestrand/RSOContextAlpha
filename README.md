@@ -1,6 +1,6 @@
 # RSO Context Alpha 0.11.0
 
-[Download 0.10.0](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.10.0) ·
+[Download 0.11.0](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.11.0) ·
 [Quick-start](QUICKSTART.md) · [Installation](INSTALL.md) ·
 [Manual](MANUAL.md) · [Changes](CHANGELOG.md) · [Verification](VERIFICATION.md)
 
@@ -21,8 +21,8 @@ The files remain the source of truth. RSO doesn't learn from chat, call a model,
 
 ## Start here
 
-Download **RSOContextAlpha-0.10.0.zip** from the
-[0.10.0 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.10.0) and
+Download **RSOContextAlpha-0.11.0.zip** from the
+[0.11.0 release](https://github.com/Kinestrand/RSOContextAlpha/releases/tag/v0.11.0) and
 extract it. The release page includes a SHA-256 checksum. GitHub access is
 required while the repository is private. A release ZIP is tied to a version;
 **Code > Download ZIP** downloads the selected branch's current source instead.
@@ -44,7 +44,7 @@ coding agent to have it perform setup.
 
 Replace angle-bracket placeholders before running commands. `use` registers the folder, ingests its files, and returns a resume packet. `query` retrieves evidence for the actual task.
 
-MCP access and searchable context are separate. Reaching a folder through MCP does not register or ingest it. Call `rso_use` for each project before querying it. Re-ingest after file changes. Copies keep their own project identity; RSO does not copy or update their source files.
+MCP access and searchable context are separate. Reaching a folder through MCP does not register or ingest it. Run `rso_use` once for a project that was never ingested; after that, query it directly. Re-ingest after file changes. Copies keep their own project identity; RSO does not copy or update their source files.
 
 ## What you can do
 
@@ -55,10 +55,25 @@ MCP access and searchable context are separate. Reaching a folder through MCP do
 | Check where an answer came from | Inspect source spans and hashes; use `explain` for a saved packet |
 | Pick up an edited requirement | Run `use` again; unchanged files are skipped |
 | Separate suggestions from approval | Use `propose`; reserve validation for a named, authorized decision |
-| Integrate through MCP | Run `rso-context mcp --setup --client all`, then call `rso_use` on the project folder before querying |
+| Integrate through MCP | Run `rso-context mcp --setup --client all`, then call `rso_query` with the project folder; no startup call (`rso_use` only for a never-ingested folder) |
 | Inspect the ledger locally | Run the optional read-only localhost viewer with `admin` |
 
-## What's new in 0.10.0
+## What's new in 0.11.0
+
+- Smaller packets: the compact budget is 4 KB and the query limit 4, with
+  per-file dedup, merged adjacent spans, capped claims and trimmed metadata,
+  so packets keep inline evidence instead of filling up with metadata.
+- No startup ritual: agents call `rso_query` directly. `rso_use` on a known
+  project is a cheap freshness check with a small targeted refresh.
+- Better recall per byte: stemmed, prefix-indexed search with AND-first
+  query planning (schema revision 8, compatible with running 0.10 servers).
+- Faster ingest: files are hashed outside the write lock, unchanged files
+  cause no writes, vendored and generated files are skipped, and a query does
+  at most one write transaction.
+- New `prune-orphans` command (dry run by default) removes chunks of
+  superseded file versions.
+
+## What was new in 0.10.0
 
 - Much faster queries on large ledgers: graph matching uses an index instead of
   scanning every node, and the cache now reuses packets for repeated or
@@ -168,7 +183,7 @@ python -B install.py
 & "$env:USERPROFILE\.local\bin\rso-context.cmd" doctor
 ```
 
-The version should be `0.10.0`; `doctor` should report `ready: true`. The installer
+The version should be `0.11.0`; `doctor` should report `ready: true`. The installer
 prints the command path and does not change PATH. Follow the
 [quick-start demo](QUICKSTART.md) for a complete example using a disposable
 project and ledger. [INSTALL.md](INSTALL.md) covers Linux, macOS, and custom paths;
