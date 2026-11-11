@@ -28,6 +28,17 @@ from .config import Limits
 from .query import query_context
 from .resume import resume_context
 
+try:  # the SDK runtime brings pydantic; elsewhere the aliases fall back to plain int
+    from typing import Annotated
+
+    from pydantic import Field
+
+    ByteBudget = Annotated[int, Field(ge=512, le=65536, description="Wire byte budget, 512 to 65536.")]
+    QueryLimit = Annotated[int, Field(ge=1, le=50, description="Evidence items, 1 to 50.")]
+    TokenBudget = Annotated[int, Field(ge=1, le=200000, description="Token budget, 1 to 200000.")]
+except ImportError:  # pragma: no cover
+    ByteBudget = QueryLimit = TokenBudget = int
+
 
 INSTRUCTIONS = (
     "Local RSO Context evidence ledger over bounded folders. "
@@ -192,7 +203,7 @@ def build_server(*, db_path: str, roots: list[str], strict_roots: bool = False):
 
     error_type = _tool_error()
     access = ACCESS_STRICT if strict_roots else ACCESS_OPEN
-    allowed = bind_roots(roots) if roots else []
+    allowed = bind_roots(roots, allow_network=True) if roots else []
     granted: list[Path] = []
     database = _database(db_path)
     ledger = Path(db_path).expanduser().resolve()
@@ -236,10 +247,10 @@ def build_server(*, db_path: str, roots: list[str], strict_roots: bool = False):
         query: str,
         path: str,
         agent: str,
-        limit: int = Limits.query_limit,
-        token_budget: int = Limits.query_token_budget,
+        limit: QueryLimit = Limits.query_limit,
+        token_budget: TokenBudget = Limits.query_token_budget,
         compact: bool = True,
-        byte_budget: int = Limits.compact_byte_budget,
+        byte_budget: ByteBudget = Limits.compact_byte_budget,
     ):
         """Return a compact evidence packet by default. This writes a run record and consumes budget."""
 
@@ -270,7 +281,7 @@ def build_server(*, db_path: str, roots: list[str], strict_roots: bool = False):
         questions: list[dict],
         path: str,
         agent: str,
-        byte_budget: int = Limits.compact_byte_budget,
+        byte_budget: ByteBudget = Limits.compact_byte_budget,
     ):
         """Answer typed claim/choice/value questions from ledger evidence. Writes a run record."""
 
@@ -283,7 +294,7 @@ def build_server(*, db_path: str, roots: list[str], strict_roots: bool = False):
         return _invoke(error_type, run)
 
     @mcp.tool()
-    def rso_resume(path: str, agent: str, limit: int = 8) -> dict:
+    def rso_resume(path: str, agent: str, limit: QueryLimit = 8) -> dict:
         """Return a compact resume packet. Does not ingest."""
 
         def run():
@@ -299,7 +310,7 @@ def build_server(*, db_path: str, roots: list[str], strict_roots: bool = False):
         return _invoke(error_type, lambda: explain_packet(database, packet_hash, visible()))
 
     @mcp.tool(structured_output=False)
-    def rso_expand(ref: str, max_bytes: int = Limits.compact_byte_budget):
+    def rso_expand(ref: str, max_bytes: ByteBudget = Limits.compact_byte_budget):
         """Retrieve omitted evidence by expansion reference. Bounded; stale if the file changed."""
 
         def run():
@@ -329,24 +340,39 @@ def build_server(*, db_path: str, roots: list[str], strict_roots: bool = False):
 
         def run():
             attributed = require_agent(agent)
+            if not str(validator or "").strip():
+                raise ValueError("validator must name the person or deterministic check that decided")
+            payload = dict(details or {})
+            if not str(payload.get("evidence") or "").strip():
+                payload.pop("evidence", None)
+                if str(evidence or "").strip():
+                    payload["evidence"] = str(evidence).strip()
+            if not (str(payload.get("evidence") or "").strip() or str(payload.get("command") or "").strip()):
+                raise ValueError(
+                    "evidence is required: say what was read or run (the evidence argument, "
+                    "or details.evidence or details.command)"
+                )
             resolved = workspace(path) if str(path or "").strip() else None
             looks_like_id = bool(re.fullmatch(r"[0-9a-fA-F-]{8,}", str(claim or "").strip()))
             if not looks_like_id and resolved is None:
                 raise ValueError("path is required to look a claim up by its text")
-            claim_id = resolve_claim_id(
-                database,
-                str(claim) if looks_like_id else None,
-                text=None if looks_like_id else str(claim),
-                path=resolved,
-            )
+            hidden = "Claim is not in a project visible to this server"
+            try:
+                claim_id = resolve_claim_id(
+                    database,
+                    str(claim) if looks_like_id else None,
+                    text=None if looks_like_id else str(claim),
+                    path=resolved,
+                )
+            except ValueError:
+                if looks_like_id:
+                    raise ValueError(hidden) from None
+                raise
             visible_ids = project_ids_visible_to_roots(database, visible())
             with database.connect() as connection:
                 row = connection.execute("SELECT project_id FROM claims WHERE id=?", (claim_id,)).fetchone()
             if row is None or str(row["project_id"]) not in visible_ids:
-                raise ValueError("Claim is not in a project visible to this server")
-            payload = dict(details or {})
-            if str(evidence or "").strip():
-                payload.setdefault("evidence", str(evidence).strip())
+                raise ValueError(hidden)
             return record_validation(
                 database,
                 claim_id,

@@ -22,10 +22,11 @@ from .audit import (
 )
 from .config import Limits, automatic_discovery_roots, default_db_path
 from .db import SCHEMA_REVISION, SCHEMA_VERSION, Database, read_schema_revision, read_schema_version
-from .discovery import discover_and_register
+from .discovery import discover_project_paths
 from .identity import project_explanation, register_project, resolve_existing_project
 from .admin import serve_admin
 from .ingest import ingest_project, use_workspace
+from .mcp_contract import bounded_folder_refusal, path_is_within_root, resolve_bounded
 from .mcp_setup import CLIENTS as MCP_SETUP_CLIENTS
 from .pointers import compact_pointers
 from .check import CHECK_SCHEMA, check_questions, explain_check, fit_check
@@ -105,16 +106,70 @@ def _roots(args: argparse.Namespace) -> list[Path]:
     return automatic_discovery_roots()
 
 
+def _bounded_check(value: str | Path, args: argparse.Namespace, typed: str | Path | None = None):
+    """(resolved path, refusal or None). typed is what the user typed, for mapped drives."""
+    path = resolve_bounded(value)
+    if getattr(args, "allow_broad", False):
+        return path, None
+    return path, bounded_folder_refusal(path, typed=value if typed is None else typed)
+
+
+def _bounded_path(value: str | Path, args: argparse.Namespace, typed: str | Path | None = None) -> str | None:
+    """Resolve a folder the user named; None when too broad and --allow-broad is not set."""
+    path, what = _bounded_check(value, args, typed)
+    return None if what else str(path)
+
+
+def _require_bounded(value: str | Path, args: argparse.Namespace) -> str:
+    """Same bounded-folder rule the MCP tools apply; the error goes through main()."""
+    path, what = _bounded_check(value, args)
+    if what:
+        raise ValueError(
+            f"Refusing {what} as a project folder: {path}. "
+            "Pass the project folder itself, or --allow-broad to override."
+        )
+    return str(path)
+
+
+def _stored_paths(database, args: argparse.Namespace) -> tuple[list[str], list[str]]:
+    """Every registered alias path the rule allows, and the ones it skipped."""
+    with database.connect() as connection:
+        stored = [
+            row[0]
+            for row in connection.execute(
+                "SELECT DISTINCT resolved_path FROM project_aliases WHERE resolved_path IS NOT NULL "
+                "ORDER BY resolved_path"
+            )
+        ]
+    allowed, skipped = [], []
+    for path in stored:
+        try:
+            ok = _bounded_path(path, args) is not None
+        except (OSError, RuntimeError, ValueError):
+            ok = False
+        (allowed if ok else skipped).append(path)
+    return allowed, skipped
+
+
+def _discover_and_register(database, roots, args, agent):
+    """Register discovered projects, leaving out folders the bounded-folder rule refuses."""
+    registrations = []
+    typed_roots = [str(root) for root in (getattr(args, "roots", None) or [])]
+    for path in discover_project_paths(roots, max_depth=args.max_depth, max_projects=args.max_projects):
+        try:
+            typed = next((t for t in typed_roots if path_is_within_root(resolve_bounded(t), path)), None)
+            if _bounded_path(path, args, typed=typed) is None:
+                continue
+            registrations.append(register_project(database, path, agent=agent))
+        except (OSError, RuntimeError, ValueError):
+            continue
+    return registrations
+
+
 def command_discover(args: argparse.Namespace) -> int:
     database = _database(args)
     roots = _roots(args)
-    registrations = discover_and_register(
-        database,
-        roots,
-        max_depth=args.max_depth,
-        max_projects=args.max_projects,
-        agent=args.agent,
-    )
+    registrations = _discover_and_register(database, roots, args, args.agent)
     _print(
         {
             "roots": [str(root) for root in roots],
@@ -128,13 +183,7 @@ def command_discover(args: argparse.Namespace) -> int:
 def command_bootstrap(args: argparse.Namespace) -> int:
     database = _database(args)
     roots = _roots(args)
-    registrations = discover_and_register(
-        database,
-        roots,
-        max_depth=args.max_depth,
-        max_projects=args.max_projects,
-        agent=args.agent,
-    )
+    registrations = _discover_and_register(database, roots, args, args.agent)
     results = []
     seen_paths: set[str] = set()
     for registration in registrations:
@@ -168,7 +217,7 @@ def command_register(args: argparse.Namespace) -> int:
     _print(
         register_project(
             database,
-            args.path,
+            _require_bounded(args.path, args),
             agent=args.agent,
             external_id=args.external_id,
             scope=args.scope,
@@ -180,21 +229,18 @@ def command_register(args: argparse.Namespace) -> int:
 def command_ingest(args: argparse.Namespace) -> int:
     database = _database(args)
     results = []
+    skipped: list[str] = []
     if args.all:
-        with database.connect() as connection:
-            paths = [
-                row[0]
-                for row in connection.execute(
-                    "SELECT DISTINCT resolved_path FROM project_aliases WHERE resolved_path IS NOT NULL "
-                    "ORDER BY resolved_path"
-                )
-            ]
+        paths, skipped = _stored_paths(database, args)
     else:
-        paths = [str(Path(args.path or Path.cwd()).expanduser().resolve())]
+        paths = [_require_bounded(args.path or Path.cwd(), args)]
     for path in paths:
         if Path(path).is_dir():
             results.append(ingest_project(database, path, agent=args.agent, limits=_limits(args)))
-    _print({"results": results, "count": len(results)})
+    summary = {"results": results, "count": len(results)}
+    if skipped:
+        summary["skipped_broad"] = skipped
+    _print(summary)
     return 0
 
 
@@ -202,7 +248,7 @@ def command_ingest(args: argparse.Namespace) -> int:
 def command_use(args: argparse.Namespace) -> int:
     """Agent one-shot: register, incremental ingest, resume. Humans should not run this by hand."""
     database = _database(args)
-    path = str(Path(args.path or Path.cwd()).expanduser().resolve())
+    path = _require_bounded(args.path or Path.cwd(), args)
     ingest = use_workspace(database, path, agent=args.agent, limits=_limits(args))
     packet = resume_context(
         database,
@@ -317,33 +363,24 @@ def command_watch(args: argparse.Namespace) -> int:
     while True:
         iteration += 1
         results = []
+        skipped: list[str] = []
         if bounded:
-            path = str(Path(bounded).expanduser().resolve())
+            path = _require_bounded(bounded, args)
             resolve_existing_project(database, path=path)
             if Path(path).is_dir():
                 results.append(ingest_project(database, path, agent=agent, limits=_limits(args)))
         else:
             if iteration == 1 or iteration % args.discover_every == 0:
-                discover_and_register(
-                    database,
-                    _roots(args),
-                    max_depth=args.max_depth,
-                    max_projects=args.max_projects,
-                    agent=agent,
-                )
-            with database.connect() as connection:
-                paths = [
-                    row[0]
-                    for row in connection.execute(
-                        "SELECT DISTINCT resolved_path FROM project_aliases WHERE resolved_path IS NOT NULL "
-                        "ORDER BY resolved_path"
-                    )
-                ]
+                _discover_and_register(database, _roots(args), args, agent)
+            paths, skipped = _stored_paths(database, args)
             for path in paths:
                 if Path(path).is_dir():
                     results.append(ingest_project(database, path, agent=agent, limits=_limits(args)))
         changed = sum(1 for result in results if result["changed"])
-        _print({"iteration": iteration, "projects": len(results), "changed_projects": changed})
+        summary = {"iteration": iteration, "projects": len(results), "changed_projects": changed}
+        if skipped:
+            summary["skipped_broad"] = skipped
+        _print(summary)
         if args.once:
             return 0
         time.sleep(max(1.0, args.interval))
@@ -355,7 +392,8 @@ def command_stats(args: argparse.Namespace) -> int:
 
 
 def command_explain_project(args: argparse.Namespace) -> int:
-    _print(project_explanation(_database(args), args.path or Path.cwd()))
+    path = _require_bounded(args.path or Path.cwd(), args)
+    _print(project_explanation(_database(args), path))
     return 0
 
 
@@ -733,10 +771,19 @@ def _add_common_limits(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--chunk-characters", type=int, default=Limits.chunk_characters)
 
 
+def _add_allow_broad(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--allow-broad",
+        action="store_true",
+        help="Skip the refusal of a profile, system, credentials or filesystem-root folder",
+    )
+
+
 def _add_discovery(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("roots", nargs="*", help="Optional roots; automatic roots are used when omitted")
     parser.add_argument("--max-depth", type=int, default=Limits.max_discovery_depth)
     parser.add_argument("--max-projects", type=int, default=Limits.max_projects)
+    _add_allow_broad(parser)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -764,6 +811,7 @@ def build_parser() -> argparse.ArgumentParser:
     register_parser = subparsers.add_parser("register", help="Register an agent workspace alias")
     register_parser.add_argument("--path", default=str(Path.cwd()))
     register_parser.add_argument("--agent", required=True)
+    _add_allow_broad(register_parser)
     register_parser.add_argument("--external-id")
     register_parser.add_argument("--scope", choices=["project", "domain", "shared"], default="project")
     register_parser.set_defaults(function=command_register)
@@ -771,6 +819,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_parser = subparsers.add_parser("ingest", help="Incrementally ingest one or all registered projects")
     ingest_parser.add_argument("--path")
     ingest_parser.add_argument("--all", action="store_true")
+    _add_allow_broad(ingest_parser)
     ingest_parser.add_argument("--agent", default="observer")
     _add_common_limits(ingest_parser)
     ingest_parser.set_defaults(function=command_ingest)
@@ -782,6 +831,7 @@ def build_parser() -> argparse.ArgumentParser:
     use_parser.add_argument("--path", default=str(Path.cwd()))
     use_parser.add_argument("--agent", required=True)
     use_parser.add_argument("--limit", type=int, default=8)
+    _add_allow_broad(use_parser)
     _add_common_limits(use_parser)
     use_parser.set_defaults(function=command_use)
 
@@ -880,6 +930,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     explain_parser = subparsers.add_parser("explain-project", help="Explain canonical project matching")
     explain_parser.add_argument("--path")
+    _add_allow_broad(explain_parser)
     explain_parser.set_defaults(function=command_explain_project)
 
     validate_parser = subparsers.add_parser("validate", help="Validate graph and evidence invariants")
