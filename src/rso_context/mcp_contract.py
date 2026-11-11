@@ -466,6 +466,10 @@ def bounded_folder_refusal(
             what = _profile_child_refusal([part.casefold() for part in rc.relative_to(profile).parts], below_temp)
             if what:
                 return what
+    # /usr and /var themselves are refused; projects below them (/usr/src/app,
+    # /var/lib/jenkins/workspace/x, macOS temp under /private/var) stay allowed.
+    if os.name != "nt" and rc.as_posix() in ("/usr", "/var", "/private/var"):
+        return "an operating-system folder"
     for system in _system_directories():
         if _within(_key(system), rc):
             return "an operating-system folder"

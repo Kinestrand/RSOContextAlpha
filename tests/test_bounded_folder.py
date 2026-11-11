@@ -310,9 +310,10 @@ class SystemFolders(unittest.TestCase):
         for name in ("/usr/src/app", "/usr/local/src/x", "/var/lib/jenkins/workspace/x", "/workspaces/proj"):
             with self.subTest(name=name):
                 self.assertIsNone(bounded_folder_refusal(Path(name)))
-        for name in ("/usr/bin", "/usr/share/doc", "/var/log"):
+        # Resolved first, as every caller does: on macOS /var is a link to /private/var.
+        for name in ("/usr", "/var", "/usr/bin", "/usr/share/doc", "/var/log"):
             with self.subTest(name=name):
-                self.assertEqual(bounded_folder_refusal(Path(name)), "an operating-system folder")
+                self.assertEqual(bounded_folder_refusal(Path(name).resolve()), "an operating-system folder")
 
     def test_drive_root(self):
         self.assertEqual(refusal(Path(PROJECT.anchor)), "a filesystem root")
