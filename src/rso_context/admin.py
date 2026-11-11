@@ -185,10 +185,24 @@ def build_admin_html(database: Database, project_id: str | None = None) -> str:
     return "\n".join(parts)
 
 
+def _host_allowed(header: str | None, bound_port: int) -> bool:
+    """Accept only a loopback Host that names this server's port; blocks DNS rebinding."""
+    raw = (header or "").strip()
+    if raw.startswith("["):
+        host, _, rest = raw.partition("]")
+        host, port = host + "]", rest.lstrip(":")
+    else:
+        host, _, port = raw.partition(":")
+    return host in ("127.0.0.1", "localhost", "[::1]") and port in ("", str(bound_port))
+
+
 class AdminHandler(BaseHTTPRequestHandler):
     database: Database
 
     def do_GET(self) -> None:
+        if not _host_allowed(self.headers.get("Host"), self.server.server_port):
+            self.send_error(403, "Forbidden host")
+            return
         parsed = urlparse(self.path)
         path = parsed.path or "/"
         project_id = None

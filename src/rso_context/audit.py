@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from pathlib import Path
 
 from .config import is_sensitive_path
@@ -12,6 +13,19 @@ from .query import _tokens, query_context
 
 
 VALIDATION_RESULTS = {"verified", "disputed", "superseded"}
+
+
+def validator_is_agent(validator: str, agent: str | None) -> bool:
+    """True when the validator is the recording agent or a look-alike of its name."""
+
+    def key(text: str) -> str:
+        return "".join(c for c in unicodedata.normalize("NFKC", str(text)).casefold() if c.isalnum())
+
+    agent_key = key(agent or "")
+    if not agent_key:
+        return False
+    validator_key = key(validator)
+    return validator_key == agent_key or (len(agent_key) >= 3 and agent_key in validator_key)
 
 
 def record_validation(
@@ -36,10 +50,12 @@ def record_validation(
     if validation_result not in VALIDATION_RESULTS:
         allowed = ", ".join(sorted(VALIDATION_RESULTS))
         raise ValueError(f"Validation result must be one of: {allowed}")
+    if validator_is_agent(validator_name, agent):
+        raise ValueError("validator must name the person or deterministic check that decided, not the calling agent")
     if details is not None and not isinstance(details, dict):
         raise ValueError("Validation details must be a JSON object")
     details = dict(details or {})
-    if agent and str(agent).strip() and "recorded_by" not in details:
+    if agent and str(agent).strip():
         details["recorded_by"] = str(agent).strip()
 
     now = utc_now()

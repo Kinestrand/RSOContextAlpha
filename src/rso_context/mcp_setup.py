@@ -401,7 +401,7 @@ def setup_client(
     if client not in CLIENTS:
         raise ValueError(f"Unsupported client {client!r}; supported: {', '.join(CLIENTS)}")
     requested = _as_roots(roots)
-    bound = bind_roots(requested) if requested else []
+    bound = bind_roots(requested, allow_network=True) if requested else []
     if strict_roots and not bound:
         raise ValueError("--strict-roots setup needs at least one --root")
     launch = mcp_launch(bound, strict_roots=strict_roots)

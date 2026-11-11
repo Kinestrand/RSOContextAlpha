@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import functools
+import re
+import socket
+import sys
+import tempfile
 
 from .scope import path_is_parent
 
@@ -24,6 +29,40 @@ ACCESS_STRICT = "strict"
 
 # Folders that hold one profile per account (C:\Users, /home, /Users).
 PROFILE_CONTAINERS = {"users", "home"}
+
+# Profile folders that hold credentials; nothing at any depth beneath them is a project.
+SECRET_HOME_FOLDERS = {".ssh", ".aws", ".gnupg", ".azure", ".kube", ".docker"}
+
+_ADMIN_SHARE = re.compile(r"^\\\\([^\\]+)\\([A-Za-z])\$(?:\\(.*))?$", re.IGNORECASE)
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]", "::1.ipv6-literal.net", "0--1.ipv6-literal.net"}
+
+
+@functools.lru_cache(maxsize=1)
+def _local_addresses() -> frozenset[str]:
+    """This computer's own IP addresses, looked up once."""
+    found: set[str] = set()
+    try:
+        name = socket.gethostname()
+        found.update(socket.gethostbyname_ex(name)[2])
+        found.update(info[4][0] for info in socket.getaddrinfo(name, None))
+    except OSError:
+        pass
+    return frozenset(address.casefold() for address in found)
+
+
+def _local_hosts() -> set[str]:
+    """Every name or address this computer answers to in a UNC path, casefolded."""
+    names = set(_LOOPBACK_HOSTS) | _local_addresses()
+    found = [os.environ.get("COMPUTERNAME")]
+    try:
+        found.append(socket.gethostname())
+    except OSError:
+        pass
+    for name in found:
+        if name:
+            names.add(name.casefold())
+            names.add(name.casefold().split(".")[0])
+    return names
 
 UNBOUNDED_HOME_CHILDREN = {
     "desktop",
@@ -185,7 +224,7 @@ def _home_paths() -> list[Path]:
     seen: set[str] = set()
     for candidate in candidates:
         try:
-            resolved = candidate.expanduser().resolve()
+            resolved = resolve_bounded(candidate)
         except (OSError, RuntimeError):
             continue
         key = os.path.normcase(str(resolved))
@@ -196,11 +235,40 @@ def _home_paths() -> list[Path]:
     return homes
 
 
+def normalize_path_text(value: str | Path) -> str:
+    r"""Fold Windows spellings of one folder into its drive-letter form.
+
+    The extended-length, UNC and local administrative share spellings all name
+    a folder the plain drive-letter rule already judges, so they must not dodge
+    it. What stays a \\host\share path is a real network or device path. A
+    no-op off Windows.
+    """
+    text = str(value)
+    if os.name != "nt":
+        return text
+    text = text.replace("/", "\\")
+    if text.upper().startswith("\\\\?\\UNC\\"):
+        text = "\\\\" + text[8:]
+    elif text.startswith("\\\\?\\") and re.match(r"[A-Za-z]:", text[4:6]):
+        text = text[4:]
+    match = _ADMIN_SHARE.match(text)
+    if match and match.group(1).casefold() in _local_hosts():
+        text = match.group(2) + ":\\" + (match.group(3) or "")
+    return text
+
+
+def resolve_bounded(value: str | Path) -> Path:
+    """Path.expanduser().resolve() with Windows spellings normalized before and after."""
+    resolved = Path(normalize_path_text(value)).expanduser().resolve()
+    again = normalize_path_text(resolved)
+    return resolved if again == str(resolved) else Path(again).resolve()
+
+
 def _resolved_or_none(value: str | Path | None) -> Path | None:
     if not value:
         return None
     try:
-        return Path(value).expanduser().resolve()
+        return resolve_bounded(value)
     except (OSError, RuntimeError):
         return None
 
@@ -209,14 +277,26 @@ def _system_directories() -> list[Path]:
     """Operating-system folders that are never a project, nor inside one."""
     names: list[str | None]
     if os.name == "nt":
+        system_root = os.environ.get("SystemRoot") or os.environ.get("SYSTEMROOT") or os.environ.get("windir")
         names = [
-            os.environ.get("SystemRoot") or os.environ.get("SYSTEMROOT") or os.environ.get("windir"),
+            system_root,
             os.environ.get("ProgramFiles"),
             os.environ.get("ProgramFiles(x86)"),
             os.environ.get("ProgramData"),
         ]
+        # Fallbacks that do not depend on the environment a host passes down.
+        drive = os.path.splitdrive(normalize_path_text(system_root or sys.executable or ""))[0] or "C:"
+        for folder in ("Windows", "Program Files", "Program Files (x86)", "ProgramData"):
+            candidate = drive + "\\" + folder
+            if os.path.isdir(candidate):
+                names.append(candidate)
     else:
-        names = ["/bin", "/sbin", "/boot", "/dev", "/etc", "/proc", "/sys", "/System"]
+        names = [
+            "/bin", "/sbin", "/boot", "/dev", "/etc", "/proc", "/sys", "/System",
+            "/usr/bin", "/usr/sbin", "/usr/lib", "/usr/lib64", "/usr/libexec", "/usr/share", "/usr/include",
+            "/lib", "/lib64", "/run", "/var/log",
+            "/Library", "/Applications", "/private/etc",
+        ]
     found: list[Path] = []
     for name in names:
         resolved = _resolved_or_none(name)
@@ -238,7 +318,108 @@ def _within(parent: Path, child: Path) -> bool:
     return child == parent or path_is_parent(parent, child)
 
 
-def bounded_folder_refusal(resolved: Path) -> str | None:
+def _key(path: Path) -> Path:
+    """The default macOS disk is case-insensitive, so compare folded paths there."""
+    return Path(str(path).casefold()) if sys.platform == "darwin" else path
+
+
+def _below(parent: Path, child: Path) -> bool:
+    return child != parent and child.is_relative_to(parent)
+
+
+def _profile_child_refusal(parts: list[str], below_temp: bool = False) -> str | None:
+    """Refusal for a folder below a profile, given its lower-cased parts under the profile."""
+    if not parts:
+        return None
+    first = parts[0]
+    if first in SECRET_HOME_FOLDERS or parts[:2] == [".config", "gcloud"]:
+        return "a credentials folder"
+    if first == "appdata":
+        # Application data is off limits except below the temp folder, where projects get made.
+        if below_temp or (len(parts) >= 4 and parts[1:3] == ["local", "temp"]):
+            return None
+        return "an application data folder"
+    if first == "library" and sys.platform == "darwin" and len(parts) <= 2:
+        return "an application data folder"
+    if first.startswith("onedrive") and len(parts) == 2 and parts[1] in UNBOUNDED_HOME_CHILDREN:
+        return "an unbounded folder"
+    if len(parts) == 1:
+        if first in UNBOUNDED_HOME_CHILDREN or first.startswith("onedrive"):
+            return "an unbounded folder"
+        if first.startswith("."):
+            return "a hidden profile folder"
+    return None
+
+
+def _is_drive_mount(resolved: Path) -> bool:
+    """POSIX only: a whole drive mounted where removable or foreign drives appear.
+
+    Project folders are often mount points themselves (bind mounts, Docker
+    volumes), so a mount point alone is not refused; one sitting directly in
+    /mnt, /media, /run/media or /Volumes is a drive. A WSL drive, /mnt/<letter>,
+    is refused even when it does not report as a mount.
+    """
+    if os.name == "nt":
+        return False
+    parts = resolved.parts
+    if sys.platform.startswith("linux") and len(parts) == 3 and parts[1] == "mnt" and len(parts[2]) == 1 and parts[2].isalpha():
+        return True
+    in_drive_location = (
+        (len(parts) == 3 and parts[1] in ("mnt", "media", "Volumes"))
+        or (len(parts) == 4 and parts[1] == "media")
+        or (len(parts) == 5 and parts[1:3] == ("run", "media"))
+    )
+    return in_drive_location and os.path.ismount(resolved)
+
+
+def _wsl_refusal(parts: tuple[str, ...]) -> str | None:
+    """A Windows drive seen from WSL, /mnt/<letter>/..., judged by the Windows rules."""
+    if len(parts) < 4 or parts[1] != "mnt" or len(parts[2]) != 1 or not parts[2].isalpha():
+        return None
+    rest = [part.casefold() for part in parts[3:]]
+    if rest[0] == "users":
+        if len(rest) == 1:
+            return "a folder that contains a user profile"
+        if len(rest) == 2:
+            return "a user profile"
+        return _profile_child_refusal(rest[2:])
+    if rest[0] in ("windows", "program files", "program files (x86)", "programdata"):
+        return "an operating-system folder"
+    return None
+
+
+def _mount_parents() -> set[str]:
+    names = {"/mnt", "/media", "/Volumes", "/run/media"}
+    return {name.casefold() for name in names} if sys.platform == "darwin" else names
+
+
+def _unc_refusal(resolved: Path) -> str | None:
+    """Refusal for a \\\\host\\share\\... path that normalization left as a UNC path."""
+    pieces = [piece for piece in str(resolved)[2:].split("\\") if piece]
+    host = pieces[0].casefold() if pieces else ""
+    if host in (".", "?"):
+        return "a network or device path"
+    if host in _local_hosts():
+        return "a network path to this computer"
+    if len(pieces) >= 2 and pieces[1].endswith("$"):
+        return "an administrative share"
+    if len(pieces) < 3:
+        return "a filesystem root"
+    rest = [piece.casefold() for piece in pieces[2:]]
+    for index, part in enumerate(rest):
+        if part in PROFILE_CONTAINERS:
+            after = rest[index + 1 :]
+            if not after:
+                return "a folder that contains a user profile"
+            if len(after) == 1:
+                return "a user profile"
+            return _profile_child_refusal(after[1:])
+    return None
+
+
+def bounded_folder_refusal(
+    resolved: Path, *, allow_network: bool = False, typed: str | Path | None = None
+) -> str | None:
     """What makes a resolved folder too broad or too sensitive to serve, or None.
 
     This is the single bounded-folder rule for every MCP path, whether a launch
@@ -246,54 +427,77 @@ def bounded_folder_refusal(resolved: Path) -> str | None:
     refuses a filesystem root, a user profile or any folder that contains one,
     an unbounded profile child (Desktop, Documents, Downloads, OneDrive), a
     hidden profile child such as .ssh, operating-system folders, and the
-    ledger home.
+    ledger home. Windows spellings are normalized first. A folder below an
+    ordinary share on another computer is allowed (a mapped drive resolves to
+    one); this computer's own shares, administrative shares, device paths, a
+    share root, and a remote copy of a profile are refused. allow_network and
+    typed are kept so callers do not change; they no longer decide anything.
     """
-    if resolved == Path(resolved.anchor) or resolved.parent == resolved:
+    resolved = Path(normalize_path_text(resolved))
+    if os.name == "nt" and str(resolved).startswith("\\\\"):
+        return _unc_refusal(resolved)
+    if resolved == Path(resolved.anchor) or resolved.parent == resolved or _is_drive_mount(resolved):
         return "a filesystem root"
-    name = resolved.name.casefold()
+    if os.name != "nt" and _key(resolved).as_posix() in _mount_parents():
+        return "a folder that holds drive mounts"
+    if sys.platform.startswith("linux"):
+        what = _wsl_refusal(resolved.parts)
+        if what:
+            return what
+    rc = _key(resolved)
+    temp = _resolved_or_none(tempfile.gettempdir())
+    below_temp = temp is not None and _below(_key(temp), rc)
     for home in _home_paths():
-        if resolved == home:
+        hc = _key(home)
+        if rc == hc:
             return "a user profile"
-        if resolved.parent == home.parent and home.parent.name.casefold() in PROFILE_CONTAINERS:
+        container = hc.parent if hc.parent.name.casefold() in PROFILE_CONTAINERS else None
+        if container is not None and rc.parent == container:
             # Another account's profile beside this one, such as C:\Users\Public.
             return "a user profile"
-        if path_is_parent(resolved, home):
+        if _below(rc, hc):
             return "a folder that contains a user profile"
-        if resolved.parent == home:
-            if name in UNBOUNDED_HOME_CHILDREN or name.startswith("onedrive"):
-                return "an unbounded folder"
-            if name.startswith("."):
-                return "a hidden profile folder"
+        profile = None
+        if _below(hc, rc):
+            profile = hc
+        elif container is not None and _below(container, rc):
+            profile = container / rc.relative_to(container).parts[0]
+        if profile is not None:
+            what = _profile_child_refusal([part.casefold() for part in rc.relative_to(profile).parts], below_temp)
+            if what:
+                return what
     for system in _system_directories():
-        if _within(system, resolved):
+        if _within(_key(system), rc):
             return "an operating-system folder"
     ledger = _ledger_home()
     if ledger is not None and _within(ledger, resolved):
         return "the RSO ledger home"
+    if resolved == _resolved_or_none(tempfile.gettempdir()):
+        return "the system temp folder"
     return None
 
 
-def assert_bounded_root(path: str | Path) -> Path:
+def assert_bounded_root(path: str | Path, *, allow_network: bool = False) -> Path:
     """Refuse a folder that is too broad or too sensitive to serve."""
     try:
-        resolved = Path(path).expanduser().resolve()
+        resolved = resolve_bounded(path)
     except OSError as error:
         raise ValueError(f"Cannot resolve MCP root: {path}") from error
     if not resolved.is_dir():
         raise ValueError(f"MCP root is not a directory: {resolved}")
-    what = bounded_folder_refusal(resolved)
+    what = bounded_folder_refusal(resolved, allow_network=allow_network, typed=path)
     if what:
         raise ValueError(f"Refusing to bind {what} as an MCP root: {resolved}")
     return resolved
 
 
-def bind_roots(roots: list[str] | tuple[str, ...]) -> list[Path]:
+def bind_roots(roots: list[str] | tuple[str, ...], *, allow_network: bool = False) -> list[Path]:
     if not roots:
         raise ValueError("rso-context mcp requires one or more --root folders")
     bound: list[Path] = []
     seen: set[str] = set()
     for root in roots:
-        resolved = assert_bounded_root(root)
+        resolved = assert_bounded_root(root, allow_network=allow_network)
         key = os.path.normcase(str(resolved))
         if key in seen:
             continue
@@ -319,7 +523,8 @@ def resolve_launch_roots(
     project folder from the tool call itself.
     """
     if roots:
-        return bind_roots(roots)
+        # A network path the user names with --root is theirs to bind.
+        return bind_roots(roots, allow_network=True)
     if cwd is not None:
         candidate = Path(cwd)
     else:
@@ -343,8 +548,8 @@ def resolve_launch_roots(
 
 def path_is_within_root(root: str | Path, path: str | Path) -> bool:
     try:
-        root_path = Path(root).expanduser().resolve()
-        child = Path(path).expanduser().resolve()
+        root_path = resolve_bounded(root)
+        child = resolve_bounded(path)
     except OSError:
         return False
     if root_path == child:
@@ -357,7 +562,7 @@ def resolve_tool_path(path: str | Path, roots: list[Path]) -> Path:
     if not str(path).strip():
         raise ValueError("path is required")
     try:
-        resolved = Path(path).expanduser().resolve()
+        resolved = resolve_bounded(path)
     except OSError as error:
         raise ValueError(f"Cannot resolve path: {path}") from error
     for root in roots:
@@ -384,7 +589,7 @@ def resolve_workspace_path(
     if not str(path).strip():
         raise ValueError("path is required")
     try:
-        resolved = Path(path).expanduser().resolve()
+        resolved = resolve_bounded(path)
     except OSError as error:
         raise ValueError(f"Cannot resolve path: {path}") from error
     if database_path is not None:
@@ -400,7 +605,7 @@ def resolve_workspace_path(
     if not resolved.is_dir():
         raise ValueError(f"path is not a directory: {resolved}")
     if not inside:
-        what = bounded_folder_refusal(resolved)
+        what = bounded_folder_refusal(resolved, typed=path)
         if what:
             raise ValueError(
                 f"Refusing to use {what} as a project folder: {resolved}. "
